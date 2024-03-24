@@ -91,7 +91,7 @@ protected:
         return uint32_t(m_SwapChainImages.size());
     }
 
-    void BeginFrame() override;
+    bool BeginFrame() override;
     void Present() override;
 
     const char *GetRendererString() const override
@@ -1154,19 +1154,20 @@ void DeviceManager_VK::DestroyDeviceAndSwapChain()
     }
 }
 
-void DeviceManager_VK::BeginFrame()
+bool DeviceManager_VK::BeginFrame()
 {
     const auto& semaphore = m_PresentSemaphores[m_PresentSemaphoreIndex];
 
     const vk::Result res = m_VulkanDevice.acquireNextImageKHR(m_SwapChain,
-                                                      std::numeric_limits<uint64_t>::max(), // timeout
+                                                      UINT64_MAX, // timeout
                                                       semaphore,
                                                       vk::Fence(),
                                                       &m_SwapChainIndex);
 
-    if (res == vk::Result::eErrorOutOfDateKHR || m_Resized)
+    if (res == vk::Result::eErrorOutOfDateKHR)
     {
-        m_DeviceParams.handleSuboptimalSwapchain();
+        SetResized();
+        return false;
     }
     else
     {
@@ -1174,6 +1175,7 @@ void DeviceManager_VK::BeginFrame()
     }
 
     m_NvrhiDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
+    return true;
 }
 
 void DeviceManager_VK::Present()
@@ -1194,9 +1196,9 @@ void DeviceManager_VK::Present()
                                 .setPImageIndices(&m_SwapChainIndex);
 
     const vk::Result res = m_PresentQueue.presentKHR(&info);
-    if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_Resized)
+    if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR)
     {
-        m_DeviceParams.handleSuboptimalSwapchain();
+        SetResized();
     }
     else
     {

@@ -93,7 +93,6 @@ struct DeviceCreationParameters : public InstanceParameters
     std::vector<size_t> ignoredVulkanValidationMessageLocations;
     std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
     std::function<bool(VkInstance, VkSurfaceKHR*)> createSurfaceCallback;
-    std::function<void()> handleSuboptimalSwapchain;
 
     // This pointer specifies an optional structure to be put at the end of the chain for 'vkGetPhysicalDeviceFeatures2' call.
     // The structure may also be a chain, and must be alive during the device initialization process.
@@ -135,9 +134,9 @@ public:
     // Note: a call to CreateInstance() or Create*Device*() is required before EnumerateAdapters().
     virtual bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) = 0;
 
-    void UpdateWindowSize(); // call when resized
+    void MaybeRecreateSwapchain(); // call before BeginFrame()
 
-    virtual void BeginFrame() = 0;
+    virtual bool BeginFrame() = 0;
     virtual void Present() = 0;
 
     [[nodiscard]] virtual nvrhi::IDevice *GetDevice() const = 0;
@@ -170,7 +169,7 @@ protected:
     DeviceCreationParameters m_DeviceParams;
     bool m_RequestedVSync = false;
     bool m_InstanceCreated = false;
-    std::atomic<bool> m_Resized = false;
+    std::atomic<bool> m_Resized;
 
     std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
 

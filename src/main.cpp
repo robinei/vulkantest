@@ -97,11 +97,6 @@ int main(int argc, char* argv[]) {
     };
 
     DeviceManager *deviceManager = DeviceManager::Create(nvrhi::GraphicsAPI::VULKAN);
-    params.handleSuboptimalSwapchain = [&]() {
-        deviceManager->SetResized();
-        deviceManager->UpdateWindowSize();
-    };
-
     deviceManager->CreateWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->GetDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
@@ -133,17 +128,19 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        deviceManager->UpdateWindowSize();
+        deviceManager->MaybeRecreateSwapchain();
 
-        deviceManager->BeginFrame();
-        nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();
+        if (deviceManager->BeginFrame()) {
+            nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();
 
-        commandList->open();
-        nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(1.f));
-        commandList->close();
-        device->executeCommandList(commandList);
+            commandList->open();
+            nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(1.f));
+            commandList->close();
+            device->executeCommandList(commandList);
 
-        deviceManager->Present();
+            deviceManager->Present();
+        }
+
         SDL_Delay(0);
         device->runGarbageCollection();
     }

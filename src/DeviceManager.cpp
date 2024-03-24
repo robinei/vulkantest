@@ -90,7 +90,7 @@ const DeviceCreationParameters& DeviceManager::GetDeviceParams()
     return m_DeviceParams;
 }
 
-void DeviceManager::UpdateWindowSize()
+void DeviceManager::MaybeRecreateSwapchain()
 {
     if (m_Resized || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
     {
