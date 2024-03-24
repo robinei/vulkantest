@@ -92,7 +92,7 @@ int main(int argc, char* argv[]) {
             return false;
         }
         assert(surface);
-        logger.info("Created SDL Vulkan surface.");
+        logger.debug("Created SDL Vulkan surface.");
         return true;
     };
 
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 
     SDL_AddEventWatch(EventWatcherCallback, deviceManager);
     
-    logger.info("Initialized with errors: %s", SDL_GetError());
+    logger.debug("Initialized with errors: %s", SDL_GetError());
 
     bool running = true;
     while (running) {
@@ -153,6 +153,6 @@ int main(int argc, char* argv[]) {
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
-    logger.info("Cleaned up with errors: %s", SDL_GetError());
+    logger.debug("Cleaned up with errors: %s", SDL_GetError());
     return 0;
 }

@@ -3,12 +3,18 @@ rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 MAKE=make
 CC=ccache gcc
 CXX=ccache g++
-LD=g++
+LD=ccache g++
 RM=rm -f
 
-EXCLUDE=
-C_SOURCES=$(filter-out $(EXCLUDE),$(call rwildcard,src,*.c))
-CXX_SOURCES=$(filter-out $(EXCLUDE),$(call rwildcard,src,*.cpp))
+export MAKE
+export CC
+export CXX
+export LD
+export RM
+
+
+C_SOURCES=$(call rwildcard,src,*.c)
+CXX_SOURCES=$(call rwildcard,src,*.cpp)
 
 CFLAGS=-c -I./src/deps/include -g
 CXXFLAGS=$(CFLAGS) -std=c++17
@@ -23,11 +29,11 @@ all: rebuild
 	./$(EXECUTABLE)
 
 .PHONY: rebuild
-rebuild : clean
+rebuild: clean
 	$(MAKE) build
 
 .PHONY: build
-build: $(C_SOURCES) $(CXX_SOURCES) $(EXECUTABLE)
+build: $(EXECUTABLE)
 
 .PHONY: clean
 clean:
