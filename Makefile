@@ -16,7 +16,7 @@ LDFLAGS=-lrt -lpthread -ldl -lSDL2 -lSDLmain -lvulkan
 
 
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
-EXECUTABLE=cppgame
+EXECUTABLE=vulkantest
 
 .PHONY: all
 all: rebuild

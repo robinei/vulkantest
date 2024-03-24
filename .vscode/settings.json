@@ -86,6 +86,6 @@
     },
     "files.exclude": {
         "**/*.o": true,
-        "cppgame": true
+        "vulkantest": true
     }
 }

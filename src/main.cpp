@@ -72,7 +72,7 @@ int main(int argc, char* argv[]) {
     SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) == 0);
     SDL_CHECK(SDL_Vulkan_LoadLibrary(nullptr) == 0);
-    SDL_Window *window = SDL_CreateWindow("cppgame",
+    SDL_Window *window = SDL_CreateWindow("vulkantest",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         params.backBufferWidth, params.backBufferHeight,
         SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
