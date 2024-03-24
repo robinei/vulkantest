@@ -122,6 +122,14 @@ int main(int argc, char* argv[]) {
             case SDL_WINDOWEVENT_SIZE_CHANGED:
                 deviceManager->SetResized();
                 break;
+            case SDL_KEYDOWN:
+                switch (event.key.keysym.sym) {
+                case SDLK_q:
+                case SDLK_ESCAPE:
+                    running = false;
+                    break;
+                }
+                break;
             }
         }
 
