@@ -23,6 +23,7 @@
 // adapted from https://github.com/NVIDIAGameWorks/donut
 
 #include "DeviceManager.h"
+#include <nvrhi/utils.h>
 
 static StdoutLogger stdoutLogger;
 
@@ -81,8 +82,45 @@ void DeviceManager::CreateFramebuffers()
     for (uint32_t index = 0; index < backBufferCount; index++)
     {
         m_SwapChainFramebuffers[index] = GetDevice()->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)));
+            nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)).setDepthAttachment(CreateDepthBuffer()));
     }
+}
+
+nvrhi::TextureHandle DeviceManager::CreateDepthBuffer()
+{
+    bool useReverseProjection = false;
+    uint32_t sampleCount = 1;
+    
+    const nvrhi::Format depthFormats[] = {
+        nvrhi::Format::D24S8,
+        nvrhi::Format::D32S8,
+        nvrhi::Format::D32,
+        nvrhi::Format::D16 };
+
+    const nvrhi::FormatSupport depthFeatures = 
+        nvrhi::FormatSupport::Texture |
+        nvrhi::FormatSupport::DepthStencil |
+        nvrhi::FormatSupport::ShaderLoad;
+
+    nvrhi::TextureDesc desc;
+    desc.width = m_DeviceParams.backBufferWidth;
+    desc.height = m_DeviceParams.backBufferHeight;
+    desc.initialState = nvrhi::ResourceStates::RenderTarget;
+    desc.isRenderTarget = true;
+    desc.useClearValue = true;
+    desc.clearValue = nvrhi::Color(0.f);
+    desc.sampleCount = sampleCount;
+    desc.dimension = sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D;
+    desc.keepInitialState = true;
+    desc.isTypeless = false;
+    desc.isUAV = false;
+    desc.mipLevels = 1;
+    desc.format = nvrhi::utils::ChooseFormat(GetDevice(), depthFeatures, depthFormats, 4);
+    desc.isTypeless = true;
+    desc.initialState = nvrhi::ResourceStates::DepthWrite;
+    desc.clearValue = useReverseProjection ? nvrhi::Color(0.f) : nvrhi::Color(1.f);
+    desc.debugName = "Depth";
+    return GetDevice()->createTexture(desc);
 }
 
 const DeviceCreationParameters& DeviceManager::GetDeviceParams()

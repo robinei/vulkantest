@@ -154,6 +154,8 @@ public:
     virtual uint32_t GetBackBufferCount() = 0;
     nvrhi::IFramebuffer* GetCurrentFramebuffer();
     nvrhi::IFramebuffer* GetFramebuffer(uint32_t index);
+    uint32_t GetFramebufferWidth() { return m_DeviceParams.backBufferWidth; }
+    uint32_t GetFramebufferHeight() { return m_DeviceParams.backBufferHeight; }
 
     virtual void Destroy();
     virtual ~DeviceManager() = default;
@@ -177,6 +179,7 @@ protected:
 
     void ReleaseFramebuffers();
     void CreateFramebuffers();
+    nvrhi::TextureHandle CreateDepthBuffer();
 
     // device-specific methods
     virtual bool CreateInstanceInternal() = 0;

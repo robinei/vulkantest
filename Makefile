@@ -5,13 +5,11 @@ CC=ccache gcc
 CXX=ccache g++
 LD=ccache g++
 RM=rm -f
+GLSLC=glslc
 
-export MAKE
-export CC
-export CXX
-export LD
-export RM
 
+VERT_SOURCES=$(call rwildcard,shaders,*.vert)
+FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
 
 C_SOURCES=$(call rwildcard,src,*.c)
 CXX_SOURCES=$(call rwildcard,src,*.cpp)
@@ -21,6 +19,7 @@ CXXFLAGS=$(CFLAGS) -std=c++17
 LDFLAGS=-lSDL2 -lSDL2main -lvulkan
 
 
+SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
 EXECUTABLE=vulkantest
 
@@ -33,19 +32,26 @@ rebuild: clean
 	$(MAKE) build
 
 .PHONY: build
-build: $(EXECUTABLE)
+build: $(EXECUTABLE) $(SPVFILES)
 
 .PHONY: clean
 clean:
 	find -name '*.o' | xargs $(RM)
+	find -name '*.spv' | xargs $(RM)
 	$(RM) $(EXECUTABLE)
 	$(RM) $(EXECUTABLE).exe
 
-.cpp.o:
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-.c.o:
+%.o: %.c
 	$(CC) $(CFLAGS) -o $@ $<
 
 $(EXECUTABLE): $(OBJECTS)
 	$(LD) $(OBJECTS) -o $@ $(LDFLAGS)
+
+%.vert.spv: %.vert
+	$(GLSLC) $< -o $@
+
+%.frag.spv: %.frag
+	$(GLSLC) $< -o $@
