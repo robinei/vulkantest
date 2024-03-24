@@ -45,6 +45,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <functional>
+#include <atomic>
 
 #include "Logger.h"
 
@@ -92,6 +93,7 @@ struct DeviceCreationParameters : public InstanceParameters
     std::vector<size_t> ignoredVulkanValidationMessageLocations;
     std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
     std::function<bool(VkInstance, VkSurfaceKHR*)> createSurfaceCallback;
+    std::function<void()> handleSuboptimalSwapchain;
 
     // This pointer specifies an optional structure to be put at the end of the chain for 'vkGetPhysicalDeviceFeatures2' call.
     // The structure may also be a chain, and must be alive during the device initialization process.
@@ -133,7 +135,7 @@ public:
     // Note: a call to CreateInstance() or Create*Device*() is required before EnumerateAdapters().
     virtual bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) = 0;
 
-    void UpdateWindowSize(uint32_t width, uint32_t height); // call when resized
+    void UpdateWindowSize(); // call when resized
 
     virtual void BeginFrame() = 0;
     virtual void Present() = 0;
@@ -145,6 +147,7 @@ public:
     const DeviceCreationParameters& GetDeviceParams();
     [[nodiscard]] bool IsVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
     virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; /* will be processed later */ }
+    void SetResized() { m_Resized = true; }
 
     virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
     virtual nvrhi::ITexture* GetBackBuffer(uint32_t index) = 0;
@@ -167,13 +170,14 @@ protected:
     DeviceCreationParameters m_DeviceParams;
     bool m_RequestedVSync = false;
     bool m_InstanceCreated = false;
+    std::atomic<bool> m_Resized = false;
 
     std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
 
     DeviceManager() = default;
 
-    void BackBufferResizing();
-    void BackBufferResized();
+    void ReleaseFramebuffers();
+    void CreateFramebuffers();
 
     // device-specific methods
     virtual bool CreateInstanceInternal() = 0;

@@ -64,22 +64,17 @@ bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameter
     if (!CreateSwapChain())
         return false;
 
-    // reset the back buffer size state to enforce a resize event
-    uint32_t width = m_DeviceParams.backBufferWidth;
-    uint32_t height = m_DeviceParams.backBufferHeight;
-    m_DeviceParams.backBufferWidth = 0;
-    m_DeviceParams.backBufferHeight = 0;
-    UpdateWindowSize(width, height);
+    CreateFramebuffers();
 
     return true;
 }
 
-void DeviceManager::BackBufferResizing()
+void DeviceManager::ReleaseFramebuffers()
 {
     m_SwapChainFramebuffers.clear();
 }
 
-void DeviceManager::BackBufferResized()
+void DeviceManager::CreateFramebuffers()
 {
     uint32_t backBufferCount = GetBackBufferCount();
     m_SwapChainFramebuffers.resize(backBufferCount);
@@ -95,22 +90,19 @@ const DeviceCreationParameters& DeviceManager::GetDeviceParams()
     return m_DeviceParams;
 }
 
-void DeviceManager::UpdateWindowSize(uint32_t width, uint32_t height)
+void DeviceManager::UpdateWindowSize()
 {
-    if (m_DeviceParams.backBufferWidth != width ||
-        m_DeviceParams.backBufferHeight != height ||
-        (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
+    if (m_Resized || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
     {
-        BackBufferResizing();
+        ReleaseFramebuffers();
 
-        m_DeviceParams.backBufferWidth = width;
-        m_DeviceParams.backBufferHeight = height;
         m_DeviceParams.vsyncEnabled = m_RequestedVSync;
 
         ResizeSwapChain();
-        BackBufferResized();
+        CreateFramebuffers();
     }
 
+    m_Resized = false;
     m_DeviceParams.vsyncEnabled = m_RequestedVSync;
 }
 

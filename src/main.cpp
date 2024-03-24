@@ -51,6 +51,18 @@ static SdlLogger logger;
 } while(0)
 
 
+static int EventWatcherCallback(void *userdata, SDL_Event *event) {
+    DeviceManager *deviceManager = static_cast<DeviceManager *>(userdata);
+    switch (event->type) {
+    case SDL_WINDOWEVENT_RESIZED:
+    case SDL_WINDOWEVENT_SIZE_CHANGED:
+        deviceManager->SetResized();
+        break;
+    }
+    return 0;
+}
+
+
 int main(int argc, char* argv[]) {
     DeviceCreationParameters params;
     params.logger = &logger;
@@ -63,7 +75,7 @@ int main(int argc, char* argv[]) {
     SDL_Window *window = SDL_CreateWindow("cppgame",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         params.backBufferWidth, params.backBufferHeight,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN);
+        SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     SDL_CHECK(window);
     
     uint32_t extensionCount;
@@ -83,27 +95,37 @@ int main(int argc, char* argv[]) {
         logger.info("Created SDL Vulkan surface.");
         return true;
     };
-    
-    logger.info("Initialized with errors: %s", SDL_GetError());
 
     DeviceManager *deviceManager = DeviceManager::Create(nvrhi::GraphicsAPI::VULKAN);
+    params.handleSuboptimalSwapchain = [&]() {
+        deviceManager->SetResized();
+        deviceManager->UpdateWindowSize();
+    };
+
     deviceManager->CreateWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->GetDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
 
+    SDL_AddEventWatch(EventWatcherCallback, deviceManager);
+    
+    logger.info("Initialized with errors: %s", SDL_GetError());
+
     bool running = true;
     while (running) {
-        SDL_Event windowEvent;
-        while (SDL_PollEvent(&windowEvent)) {
-            if (windowEvent.type == SDL_QUIT) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            switch (event.type) {
+            case SDL_QUIT:
                 running = false;
+                break;
+            case SDL_WINDOWEVENT_RESIZED:
+            case SDL_WINDOWEVENT_SIZE_CHANGED:
+                deviceManager->SetResized();
                 break;
             }
         }
 
-        int width, height;
-        SDL_Vulkan_GetDrawableSize(window, &width, &height);
-        deviceManager->UpdateWindowSize((uint32_t)width, (uint32_t)height);
+        deviceManager->UpdateWindowSize();
 
         deviceManager->BeginFrame();
         nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();

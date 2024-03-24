@@ -68,7 +68,6 @@ protected:
     {
         if (m_VulkanDevice)
         {
-            destroySwapChain();
             createSwapChain();
         }
     }
@@ -885,7 +884,9 @@ bool DeviceManager_VK::createSwapChain()
         vk::ColorSpaceKHR::eSrgbNonlinear
     };
 
-    vk::Extent2D extent = vk::Extent2D(m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight);
+    auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
+    vk::Extent2D extent = surfaceCaps.currentExtent;
+    logger()->debug("(Re)-creating swapchain: %d x %d", extent.width, extent.height);
 
     std::unordered_set<uint32_t> uniqueQueues = {
         uint32_t(m_GraphicsQueueFamily),
@@ -951,8 +952,8 @@ bool DeviceManager_VK::createSwapChain()
         sci.image = image;
         
         nvrhi::TextureDesc textureDesc;
-        textureDesc.width = m_DeviceParams.backBufferWidth;
-        textureDesc.height = m_DeviceParams.backBufferHeight;
+        textureDesc.width = extent.width;
+        textureDesc.height = extent.height;
         textureDesc.format = m_DeviceParams.swapChainFormat;
         textureDesc.debugName = "Swap chain image";
         textureDesc.initialState = nvrhi::ResourceStates::Present;
@@ -964,6 +965,8 @@ bool DeviceManager_VK::createSwapChain()
     }
 
     m_SwapChainIndex = 0;
+    m_DeviceParams.backBufferWidth = extent.width;
+    m_DeviceParams.backBufferHeight = extent.height;
 
     return true;
 }
@@ -1161,10 +1164,14 @@ void DeviceManager_VK::BeginFrame()
                                                       vk::Fence(),
                                                       &m_SwapChainIndex);
 
-    if (res != vk::Result::eSuccess) {
-        logger()->info("CODE: %d", res);
+    if (res == vk::Result::eErrorOutOfDateKHR || m_Resized)
+    {
+        m_DeviceParams.handleSuboptimalSwapchain();
     }
-    assert(res == vk::Result::eSuccess);
+    else
+    {
+        assert(res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR);
+    }
 
     m_NvrhiDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
 }
@@ -1187,7 +1194,14 @@ void DeviceManager_VK::Present()
                                 .setPImageIndices(&m_SwapChainIndex);
 
     const vk::Result res = m_PresentQueue.presentKHR(&info);
-    assert(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR);
+    if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR || m_Resized)
+    {
+        m_DeviceParams.handleSuboptimalSwapchain();
+    }
+    else
+    {
+        assert(res == vk::Result::eSuccess);
+    }
 
     m_PresentSemaphoreIndex = (m_PresentSemaphoreIndex + 1) % m_PresentSemaphores.size();
 
