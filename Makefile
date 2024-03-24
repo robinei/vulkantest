@@ -12,7 +12,7 @@ CXX_SOURCES=$(filter-out $(EXCLUDE),$(call rwildcard,src,*.cpp))
 
 CFLAGS=-c -I./src/deps/include -g
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS=-lrt -lpthread -ldl -lSDL2 -lSDLmain -lvulkan
+LDFLAGS=-lSDL2 -lSDL2main -lvulkan
 
 
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
