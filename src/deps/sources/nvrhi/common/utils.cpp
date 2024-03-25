@@ -124,7 +124,7 @@ namespace nvrhi::utils
         const FramebufferAttachment& att = framebuffer->getDesc().depthAttachment;
         if (att.texture)
         {
-            commandList->clearTextureFloat(att.texture, att.subresources, Color(depth, float(stencil), 0.f, 0.f));
+            commandList->clearDepthStencilTexture(att.texture, att.subresources, true, depth, true, stencil);
         }
     }
 

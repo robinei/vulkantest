@@ -105,14 +105,11 @@ nvrhi::TextureHandle DeviceManager::CreateDepthBuffer()
     nvrhi::TextureDesc desc;
     desc.width = m_DeviceParams.backBufferWidth;
     desc.height = m_DeviceParams.backBufferHeight;
-    desc.initialState = nvrhi::ResourceStates::RenderTarget;
     desc.isRenderTarget = true;
     desc.useClearValue = true;
-    desc.clearValue = nvrhi::Color(0.f);
     desc.sampleCount = sampleCount;
     desc.dimension = sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D;
     desc.keepInitialState = true;
-    desc.isTypeless = false;
     desc.isUAV = false;
     desc.mipLevels = 1;
     desc.format = nvrhi::utils::ChooseFormat(GetDevice(), depthFeatures, depthFormats, 4);
