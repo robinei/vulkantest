@@ -27,7 +27,7 @@
 
 static StdoutLogger stdoutLogger;
 
-bool DeviceManager::CreateInstance(const InstanceParameters& params)
+bool DeviceManager::createInstance(const InstanceParameters& params)
 {
     if (m_InstanceCreated)
         return true;
@@ -35,58 +35,58 @@ bool DeviceManager::CreateInstance(const InstanceParameters& params)
     static_cast<InstanceParameters&>(m_DeviceParams) = params;
     m_MessageCallback.logger = params.logger ? params.logger : &stdoutLogger;
 
-    m_InstanceCreated = CreateInstanceInternal();
+    m_InstanceCreated = createInstanceInternal();
     return m_InstanceCreated;
 }
 
-bool DeviceManager::CreateHeadlessDevice(const DeviceCreationParameters& params)
+bool DeviceManager::createHeadlessDevice(const DeviceCreationParameters& params)
 {
     m_DeviceParams = params;
     m_DeviceParams.headlessDevice = true;
 
-    if (!CreateInstance(m_DeviceParams))
+    if (!createInstance(m_DeviceParams))
         return false;
 
-    return CreateDevice();
+    return createDevice();
 }
 
-bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameters& params)
+bool DeviceManager::createWindowDeviceAndSwapChain(const DeviceCreationParameters& params)
 {
     m_DeviceParams = params;
     m_DeviceParams.headlessDevice = false;
     m_RequestedVSync = params.vsyncEnabled;
 
-    if (!CreateInstance(m_DeviceParams))
+    if (!createInstance(m_DeviceParams))
         return false;
 
-    if (!CreateDevice())
+    if (!createDevice())
         return false;
 
-    if (!CreateSwapChain())
+    if (!createSwapChain())
         return false;
 
-    CreateFramebuffers();
+    createFramebuffers();
 
     return true;
 }
 
-void DeviceManager::ReleaseFramebuffers()
+void DeviceManager::releaseFramebuffers()
 {
     m_SwapChainFramebuffers.clear();
 }
 
-void DeviceManager::CreateFramebuffers()
+void DeviceManager::createFramebuffers()
 {
-    uint32_t backBufferCount = GetBackBufferCount();
+    uint32_t backBufferCount = getBackBufferCount();
     m_SwapChainFramebuffers.resize(backBufferCount);
     for (uint32_t index = 0; index < backBufferCount; index++)
     {
-        m_SwapChainFramebuffers[index] = GetDevice()->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)).setDepthAttachment(CreateDepthBuffer()));
+        m_SwapChainFramebuffers[index] = getDevice()->createFramebuffer(
+            nvrhi::FramebufferDesc().addColorAttachment(getBackBuffer(index)).setDepthAttachment(createDepthBuffer()));
     }
 }
 
-nvrhi::TextureHandle DeviceManager::CreateDepthBuffer()
+nvrhi::TextureHandle DeviceManager::createDepthBuffer()
 {
     bool useReverseProjection = false;
     uint32_t sampleCount = 1;
@@ -112,50 +112,45 @@ nvrhi::TextureHandle DeviceManager::CreateDepthBuffer()
     desc.keepInitialState = true;
     desc.isUAV = false;
     desc.mipLevels = 1;
-    desc.format = nvrhi::utils::ChooseFormat(GetDevice(), depthFeatures, depthFormats, 4);
+    desc.format = nvrhi::utils::ChooseFormat(getDevice(), depthFeatures, depthFormats, 4);
     desc.isTypeless = true;
     desc.initialState = nvrhi::ResourceStates::DepthWrite;
     desc.clearValue = useReverseProjection ? nvrhi::Color(0.f) : nvrhi::Color(1.f);
     desc.debugName = "Depth";
-    return GetDevice()->createTexture(desc);
+    return getDevice()->createTexture(desc);
 }
 
-const DeviceCreationParameters& DeviceManager::GetDeviceParams()
+void DeviceManager::maybeRecreateSwapchain()
 {
-    return m_DeviceParams;
-}
-
-void DeviceManager::MaybeRecreateSwapchain()
-{
-    if (m_RequestedRecreateSwapchain || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
+    if (m_RequestedRecreateSwapchain || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
     {
-        ReleaseFramebuffers();
+        releaseFramebuffers();
 
         m_DeviceParams.vsyncEnabled = m_RequestedVSync;
 
-        ResizeSwapChain();
-        CreateFramebuffers();
+        resizeSwapChain();
+        createFramebuffers();
     }
 
     m_RequestedRecreateSwapchain = false;
     m_DeviceParams.vsyncEnabled = m_RequestedVSync;
 }
 
-void DeviceManager::Destroy()
+void DeviceManager::destroy()
 {
     m_SwapChainFramebuffers.clear();
 
-    DestroyDeviceAndSwapChain();
+    destroyDeviceAndSwapChain();
 
     m_InstanceCreated = false;
 }
 
-nvrhi::IFramebuffer* DeviceManager::GetCurrentFramebuffer()
+nvrhi::IFramebuffer* DeviceManager::getCurrentFramebuffer()
 {
-    return GetFramebuffer(GetCurrentBackBufferIndex());
+    return getFramebuffer(getCurrentBackBufferIndex());
 }
 
-nvrhi::IFramebuffer* DeviceManager::GetFramebuffer(uint32_t index)
+nvrhi::IFramebuffer* DeviceManager::getFramebuffer(uint32_t index)
 {
     if (index < m_SwapChainFramebuffers.size())
         return m_SwapChainFramebuffers[index];
@@ -163,21 +158,21 @@ nvrhi::IFramebuffer* DeviceManager::GetFramebuffer(uint32_t index)
     return nullptr;
 }
 
-DeviceManager* DeviceManager::Create(nvrhi::GraphicsAPI api)
+DeviceManager* DeviceManager::create(nvrhi::GraphicsAPI api)
 {
     switch (api)
     {
 #if USE_DX11
     case nvrhi::GraphicsAPI::D3D11:
-        return CreateD3D11();
+        return createD3D11();
 #endif
 #if USE_DX12
     case nvrhi::GraphicsAPI::D3D12:
-        return CreateD3D12();
+        return createD3D12();
 #endif
 #if USE_VULKAN
     case nvrhi::GraphicsAPI::VULKAN:
-        return CreateVK();
+        return createVK();
 #endif
     default:
         assert(false);

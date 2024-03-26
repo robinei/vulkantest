@@ -57,7 +57,7 @@ static int EventWatcherCallback(void *userdata, SDL_Event *event) {
     switch (event->type) {
     case SDL_WINDOWEVENT_RESIZED:
     case SDL_WINDOWEVENT_SIZE_CHANGED:
-        deviceManager->RequestRecreateSwapchain();
+        deviceManager->requestRecreateSwapchain();
         break;
     }
     return 0;
@@ -121,10 +121,10 @@ int main(int argc, char* argv[]) {
         return true;
     };
 
-    DeviceManager *deviceManager = DeviceManager::Create(nvrhi::GraphicsAPI::VULKAN);
+    DeviceManager *deviceManager = DeviceManager::create(nvrhi::GraphicsAPI::VULKAN);
     SDL_AddEventWatch(EventWatcherCallback, deviceManager);
-    deviceManager->CreateWindowDeviceAndSwapChain(params);
-    nvrhi::IDevice *device = deviceManager->GetDevice();
+    deviceManager->createWindowDeviceAndSwapChain(params);
+    nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
     AssetLoader *assetLoader = new AssetLoader(device, &logger);
 
@@ -183,7 +183,7 @@ int main(int argc, char* argv[]) {
             .addBindingLayout(bindingLayout);
         //pipelineDesc.renderState.rasterState.setCullNone();
         //pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
-        graphicsPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->GetCurrentFramebuffer());
+        graphicsPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->getCurrentFramebuffer());
     }
 
     auto samplerDesc = nvrhi::SamplerDesc()
@@ -201,14 +201,14 @@ int main(int argc, char* argv[]) {
     bool running = true;
     while (running) {
         SDL_Event event;
-        while (SDL_PollEvent(&event) && !deviceManager->IsRecreateSwapchainRequested()) {
+        while (SDL_PollEvent(&event) && !deviceManager->isRecreateSwapchainRequested()) {
             switch (event.type) {
             case SDL_QUIT:
                 running = false;
                 break;
             case SDL_WINDOWEVENT_RESIZED:
             case SDL_WINDOWEVENT_SIZE_CHANGED:
-                deviceManager->RequestRecreateSwapchain();
+                deviceManager->requestRecreateSwapchain();
                 break;
             case SDL_KEYDOWN:
                 switch (event.key.keysym.sym) {
@@ -223,8 +223,8 @@ int main(int argc, char* argv[]) {
 
         assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
 
-        if (deviceManager->BeginFrame()) {
-            nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();
+        if (deviceManager->beginFrame()) {
+            nvrhi::IFramebuffer *framebuffer = deviceManager->getCurrentFramebuffer();
 
             commandList->open();
             nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(0.f));
@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
             auto graphicsState = nvrhi::GraphicsState()
                 .setPipeline(graphicsPipeline)
                 .setFramebuffer(framebuffer)
-                .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->GetFramebufferWidth(), deviceManager->GetFramebufferHeight())))
+                .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight())))
                 .addBindingSet(bindingSet)
                 .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(vertexBuffer));
             commandList->setGraphicsState(graphicsState);
@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
             commandList->close();
             device->executeCommandList(commandList);
 
-            deviceManager->Present();
+            deviceManager->present();
         }
 
         device->runGarbageCollection();
@@ -262,7 +262,7 @@ int main(int argc, char* argv[]) {
     fragShader = nullptr;
     commandList = nullptr;
     delete assetLoader;
-    deviceManager->Destroy();
+    deviceManager->destroy();
     delete deviceManager;
 
     SDL_DestroyWindow(window);

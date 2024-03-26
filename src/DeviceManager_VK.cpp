@@ -43,7 +43,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 class DeviceManager_VK : public DeviceManager
 {
 public:
-    [[nodiscard]] nvrhi::IDevice* GetDevice() const override
+    [[nodiscard]] nvrhi::IDevice* getDevice() const override
     {
         if (m_ValidationLayer)
             return m_ValidationLayer;
@@ -51,20 +51,20 @@ public:
         return m_NvrhiDevice;
     }
     
-    [[nodiscard]] nvrhi::GraphicsAPI GetGraphicsAPI() const override
+    [[nodiscard]] nvrhi::GraphicsAPI getGraphicsAPI() const override
     {
         return nvrhi::GraphicsAPI::VULKAN;
     }
 
-    bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) override;
+    bool enumerateAdapters(std::vector<AdapterInfo>& outAdapters) override;
 
 protected:
-    bool CreateInstanceInternal() override;
-    bool CreateDevice() override;
-    bool CreateSwapChain() override;
-    void DestroyDeviceAndSwapChain() override;
+    bool createInstanceInternal() override;
+    bool createDevice() override;
+    bool createSwapChain() override;
+    void destroyDeviceAndSwapChain() override;
 
-    void ResizeSwapChain() override
+    void resizeSwapChain() override
     {
         if (m_VulkanDevice)
         {
@@ -72,74 +72,73 @@ protected:
         }
     }
 
-    nvrhi::ITexture* GetCurrentBackBuffer() override
+    nvrhi::ITexture* getCurrentBackBuffer() override
     {
         return m_SwapChainImages[m_SwapChainIndex].rhiHandle;
     }
-    nvrhi::ITexture* GetBackBuffer(uint32_t index) override
+    nvrhi::ITexture* getBackBuffer(uint32_t index) override
     {
         if (index < m_SwapChainImages.size())
             return m_SwapChainImages[index].rhiHandle;
         return nullptr;
     }
-    uint32_t GetCurrentBackBufferIndex() override
+    uint32_t getCurrentBackBufferIndex() override
     {
         return m_SwapChainIndex;
     }
-    uint32_t GetBackBufferCount() override
+    uint32_t getBackBufferCount() override
     {
         return uint32_t(m_SwapChainImages.size());
     }
 
-    bool BeginFrame() override;
-    void Present() override;
+    bool beginFrame() override;
+    void present() override;
 
-    const char *GetRendererString() const override
+    const char *getRendererString() const override
     {
         return m_RendererString.c_str();
     }
 
-    bool IsVulkanInstanceExtensionEnabled(const char* extensionName) const override
+    bool isVulkanInstanceExtensionEnabled(const char* extensionName) const override
     {
         return enabledExtensions.instance.find(extensionName) != enabledExtensions.instance.end();
     }
 
-    bool IsVulkanDeviceExtensionEnabled(const char* extensionName) const override
+    bool isVulkanDeviceExtensionEnabled(const char* extensionName) const override
     {
         return enabledExtensions.device.find(extensionName) != enabledExtensions.device.end();
     }
     
-    bool IsVulkanLayerEnabled(const char* layerName) const override
+    bool isVulkanLayerEnabled(const char* layerName) const override
     {
         return enabledExtensions.layers.find(layerName) != enabledExtensions.layers.end();
     }
 
-    void GetEnabledVulkanInstanceExtensions(std::vector<std::string>& extensions) const override
+    void getEnabledVulkanInstanceExtensions(std::vector<std::string>& extensions) const override
     {
         for (const auto& ext : enabledExtensions.instance)
             extensions.push_back(ext);
     }
 
-    void GetEnabledVulkanDeviceExtensions(std::vector<std::string>& extensions) const override
+    void getEnabledVulkanDeviceExtensions(std::vector<std::string>& extensions) const override
     {
         for (const auto& ext : enabledExtensions.device)
             extensions.push_back(ext);
     }
 
-    void GetEnabledVulkanLayers(std::vector<std::string>& layers) const override
+    void getEnabledVulkanLayers(std::vector<std::string>& layers) const override
     {
         for (const auto& ext : enabledExtensions.layers)
             layers.push_back(ext);
     }
 
 private:
-    bool createInstance();
+    bool createDeviceInternal();
+    bool createSwapChainInternal();
     bool createWindowSurface();
     void installDebugCallback();
     bool pickPhysicalDevice();
     bool findQueueFamilies(vk::PhysicalDevice physicalDevice);
-    bool createDevice();
-    bool createSwapChain();
     void destroySwapChain();
 
     struct VulkanExtensionSet
@@ -288,141 +287,6 @@ static std::vector<T> setToVector(const std::unordered_set<T>& set)
     }
 
     return ret;
-}
-
-bool DeviceManager_VK::createInstance()
-{
-    // add instance extensions requested by the user
-    for (const std::string& name : m_DeviceParams.requiredVulkanInstanceExtensions)
-    {
-        enabledExtensions.instance.insert(name);
-    }
-    for (const std::string& name : m_DeviceParams.optionalVulkanInstanceExtensions)
-    {
-        optionalExtensions.instance.insert(name);
-    }
-
-    // add layers requested by the user
-    for (const std::string& name : m_DeviceParams.requiredVulkanLayers)
-    {
-        enabledExtensions.layers.insert(name);
-    }
-    for (const std::string& name : m_DeviceParams.optionalVulkanLayers)
-    {
-        optionalExtensions.layers.insert(name);
-    }
-
-    std::unordered_set<std::string> requiredExtensions = enabledExtensions.instance;
-
-    // figure out which optional extensions are supported
-    for(const auto& instanceExt : vk::enumerateInstanceExtensionProperties())
-    {
-        const std::string name = instanceExt.extensionName;
-        if (optionalExtensions.instance.find(name) != optionalExtensions.instance.end())
-        {
-            enabledExtensions.instance.insert(name);
-        }
-
-        requiredExtensions.erase(name);
-    }
-
-    if (!requiredExtensions.empty())
-    {
-        std::stringstream ss;
-        ss << "Cannot create a Vulkan instance because the following required extension(s) are not supported:";
-        for (const auto& ext : requiredExtensions)
-            ss << std::endl << "  - " << ext;
-
-        logger()->error("%s", ss.str().c_str());
-        return false;
-    }
-
-    logger()->info("Enabled Vulkan instance extensions:");
-    for (const auto& ext : enabledExtensions.instance)
-    {
-        logger()->info("    %s", ext.c_str());
-    }
-
-    std::unordered_set<std::string> requiredLayers = enabledExtensions.layers;
-
-    for(const auto& layer : vk::enumerateInstanceLayerProperties())
-    {
-        const std::string name = layer.layerName;
-        if (optionalExtensions.layers.find(name) != optionalExtensions.layers.end())
-        {
-            enabledExtensions.layers.insert(name);
-        }
-
-        requiredLayers.erase(name);
-    }
-
-    if (!requiredLayers.empty())
-    {
-        std::stringstream ss;
-        ss << "Cannot create a Vulkan instance because the following required layer(s) are not supported:";
-        for (const auto& ext : requiredLayers)
-            ss << std::endl << "  - " << ext;
-
-        logger()->error("%s", ss.str().c_str());
-        return false;
-    }
-    
-    logger()->info("Enabled Vulkan layers:");
-    for (const auto& layer : enabledExtensions.layers)
-    {
-        logger()->info("    %s", layer.c_str());
-    }
-
-    auto instanceExtVec = stringSetToVector(enabledExtensions.instance);
-    auto layerVec = stringSetToVector(enabledExtensions.layers);
-    
-    auto applicationInfo = vk::ApplicationInfo();
-
-    // Query the Vulkan API version supported on the system to make sure we use at least 1.3 when that's present.
-    vk::Result res = vk::enumerateInstanceVersion(&applicationInfo.apiVersion);
-
-    if (res != vk::Result::eSuccess)
-    {
-        logger()->error("Call to vkEnumerateInstanceVersion failed, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
-        return false;
-    }
-
-    const uint32_t minimumVulkanVersion = VK_MAKE_API_VERSION(0, 1, 3, 0);
-
-    // Check if the Vulkan API version is sufficient.
-    if (applicationInfo.apiVersion < minimumVulkanVersion)
-    {
-        logger()->error("The Vulkan API version supported on the system (%d.%d.%d) is too low, at least %d.%d.%d is required.",
-            VK_API_VERSION_MAJOR(applicationInfo.apiVersion), VK_API_VERSION_MINOR(applicationInfo.apiVersion), VK_API_VERSION_PATCH(applicationInfo.apiVersion),
-            VK_API_VERSION_MAJOR(minimumVulkanVersion), VK_API_VERSION_MINOR(minimumVulkanVersion), VK_API_VERSION_PATCH(minimumVulkanVersion));
-        return false;
-    }
-
-    // Spec says: A non-zero variant indicates the API is a variant of the Vulkan API and applications will typically need to be modified to run against it.
-    if (VK_API_VERSION_VARIANT(applicationInfo.apiVersion) != 0)
-    {
-        logger()->error("The Vulkan API supported on the system uses an unexpected variant: %d.", VK_API_VERSION_VARIANT(applicationInfo.apiVersion));
-        return false;
-    }
-
-    // Create the vulkan instance
-    vk::InstanceCreateInfo info = vk::InstanceCreateInfo()
-        .setEnabledLayerCount(uint32_t(layerVec.size()))
-        .setPpEnabledLayerNames(layerVec.data())
-        .setEnabledExtensionCount(uint32_t(instanceExtVec.size()))
-        .setPpEnabledExtensionNames(instanceExtVec.data())
-        .setPApplicationInfo(&applicationInfo);
-
-    res = vk::createInstance(&info, nullptr, &m_VulkanInstance);
-    if (res != vk::Result::eSuccess)
-    {
-        logger()->error("Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
-        return false;
-    }
-
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
-
-    return true;
 }
 
 void DeviceManager_VK::installDebugCallback()
@@ -663,7 +527,7 @@ bool DeviceManager_VK::findQueueFamilies(vk::PhysicalDevice physicalDevice)
     return true;
 }
 
-bool DeviceManager_VK::createDevice()
+bool DeviceManager_VK::createDeviceInternal()
 {
     // figure out which optional extensions are supported
     auto deviceExtensions = m_VulkanPhysicalDevice.enumerateDeviceExtensionProperties();
@@ -875,7 +739,7 @@ void DeviceManager_VK::destroySwapChain()
     m_SwapChainImages.clear();
 }
 
-bool DeviceManager_VK::createSwapChain()
+bool DeviceManager_VK::createSwapChainInternal()
 {
     destroySwapChain();
 
@@ -971,7 +835,7 @@ bool DeviceManager_VK::createSwapChain()
     return true;
 }
 
-bool DeviceManager_VK::CreateInstanceInternal()
+bool DeviceManager_VK::createInstanceInternal()
 {
     if (m_DeviceParams.enableDebugRuntime)
     {
@@ -983,10 +847,140 @@ bool DeviceManager_VK::CreateInstanceInternal()
         m_dynamicLoader.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
     VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
-    return createInstance();
+    // add instance extensions requested by the user
+    for (const std::string& name : m_DeviceParams.requiredVulkanInstanceExtensions)
+    {
+        enabledExtensions.instance.insert(name);
+    }
+    for (const std::string& name : m_DeviceParams.optionalVulkanInstanceExtensions)
+    {
+        optionalExtensions.instance.insert(name);
+    }
+
+    // add layers requested by the user
+    for (const std::string& name : m_DeviceParams.requiredVulkanLayers)
+    {
+        enabledExtensions.layers.insert(name);
+    }
+    for (const std::string& name : m_DeviceParams.optionalVulkanLayers)
+    {
+        optionalExtensions.layers.insert(name);
+    }
+
+    std::unordered_set<std::string> requiredExtensions = enabledExtensions.instance;
+
+    // figure out which optional extensions are supported
+    for(const auto& instanceExt : vk::enumerateInstanceExtensionProperties())
+    {
+        const std::string name = instanceExt.extensionName;
+        if (optionalExtensions.instance.find(name) != optionalExtensions.instance.end())
+        {
+            enabledExtensions.instance.insert(name);
+        }
+
+        requiredExtensions.erase(name);
+    }
+
+    if (!requiredExtensions.empty())
+    {
+        std::stringstream ss;
+        ss << "Cannot create a Vulkan instance because the following required extension(s) are not supported:";
+        for (const auto& ext : requiredExtensions)
+            ss << std::endl << "  - " << ext;
+
+        logger()->error("%s", ss.str().c_str());
+        return false;
+    }
+
+    logger()->info("Enabled Vulkan instance extensions:");
+    for (const auto& ext : enabledExtensions.instance)
+    {
+        logger()->info("    %s", ext.c_str());
+    }
+
+    std::unordered_set<std::string> requiredLayers = enabledExtensions.layers;
+
+    for(const auto& layer : vk::enumerateInstanceLayerProperties())
+    {
+        const std::string name = layer.layerName;
+        if (optionalExtensions.layers.find(name) != optionalExtensions.layers.end())
+        {
+            enabledExtensions.layers.insert(name);
+        }
+
+        requiredLayers.erase(name);
+    }
+
+    if (!requiredLayers.empty())
+    {
+        std::stringstream ss;
+        ss << "Cannot create a Vulkan instance because the following required layer(s) are not supported:";
+        for (const auto& ext : requiredLayers)
+            ss << std::endl << "  - " << ext;
+
+        logger()->error("%s", ss.str().c_str());
+        return false;
+    }
+
+    logger()->info("Enabled Vulkan layers:");
+    for (const auto& layer : enabledExtensions.layers)
+    {
+        logger()->info("    %s", layer.c_str());
+    }
+
+    auto instanceExtVec = stringSetToVector(enabledExtensions.instance);
+    auto layerVec = stringSetToVector(enabledExtensions.layers);
+
+    auto applicationInfo = vk::ApplicationInfo();
+
+    // Query the Vulkan API version supported on the system to make sure we use at least 1.3 when that's present.
+    vk::Result res = vk::enumerateInstanceVersion(&applicationInfo.apiVersion);
+
+    if (res != vk::Result::eSuccess)
+    {
+        logger()->error("Call to vkEnumerateInstanceVersion failed, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        return false;
+    }
+
+    const uint32_t minimumVulkanVersion = VK_MAKE_API_VERSION(0, 1, 3, 0);
+
+    // Check if the Vulkan API version is sufficient.
+    if (applicationInfo.apiVersion < minimumVulkanVersion)
+    {
+        logger()->error("The Vulkan API version supported on the system (%d.%d.%d) is too low, at least %d.%d.%d is required.",
+            VK_API_VERSION_MAJOR(applicationInfo.apiVersion), VK_API_VERSION_MINOR(applicationInfo.apiVersion), VK_API_VERSION_PATCH(applicationInfo.apiVersion),
+            VK_API_VERSION_MAJOR(minimumVulkanVersion), VK_API_VERSION_MINOR(minimumVulkanVersion), VK_API_VERSION_PATCH(minimumVulkanVersion));
+        return false;
+    }
+
+    // Spec says: A non-zero variant indicates the API is a variant of the Vulkan API and applications will typically need to be modified to run against it.
+    if (VK_API_VERSION_VARIANT(applicationInfo.apiVersion) != 0)
+    {
+        logger()->error("The Vulkan API supported on the system uses an unexpected variant: %d.", VK_API_VERSION_VARIANT(applicationInfo.apiVersion));
+        return false;
+    }
+
+    // Create the vulkan instance
+    vk::InstanceCreateInfo info = vk::InstanceCreateInfo()
+        .setEnabledLayerCount(uint32_t(layerVec.size()))
+        .setPpEnabledLayerNames(layerVec.data())
+        .setEnabledExtensionCount(uint32_t(instanceExtVec.size()))
+        .setPpEnabledExtensionNames(instanceExtVec.data())
+        .setPApplicationInfo(&applicationInfo);
+
+    res = vk::createInstance(&info, nullptr, &m_VulkanInstance);
+    if (res != vk::Result::eSuccess)
+    {
+        logger()->error("Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        return false;
+    }
+
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
+
+    return true;
 }
 
-bool DeviceManager_VK::EnumerateAdapters(std::vector<AdapterInfo>& outAdapters)
+bool DeviceManager_VK::enumerateAdapters(std::vector<AdapterInfo>& outAdapters)
 {
     if (!m_VulkanInstance)
         return false;
@@ -1022,7 +1016,7 @@ bool DeviceManager_VK::EnumerateAdapters(std::vector<AdapterInfo>& outAdapters)
     return true;
 }
 
-bool DeviceManager_VK::CreateDevice()
+bool DeviceManager_VK::createDevice()
 {
     if (m_DeviceParams.enableDebugRuntime)
     {
@@ -1056,7 +1050,7 @@ bool DeviceManager_VK::CreateDevice()
     }
     CHECK(pickPhysicalDevice())
     CHECK(findQueueFamilies(m_VulkanPhysicalDevice))
-    CHECK(createDevice())
+    CHECK(createDeviceInternal())
 
     auto vecInstanceExt = stringSetToVector(enabledExtensions.instance);
     auto vecLayers = stringSetToVector(enabledExtensions.layers);
@@ -1095,9 +1089,9 @@ bool DeviceManager_VK::CreateDevice()
     return true;
 }
 
-bool DeviceManager_VK::CreateSwapChain()
+bool DeviceManager_VK::createSwapChain()
 {
-    CHECK(createSwapChain())
+    CHECK(createSwapChainInternal())
 
     m_BarrierCommandList = m_NvrhiDevice->createCommandList();
 
@@ -1110,7 +1104,7 @@ bool DeviceManager_VK::CreateSwapChain()
     return true;
 }
 
-void DeviceManager_VK::DestroyDeviceAndSwapChain()
+void DeviceManager_VK::destroyDeviceAndSwapChain()
 {
     destroySwapChain();
 
@@ -1154,9 +1148,9 @@ void DeviceManager_VK::DestroyDeviceAndSwapChain()
     }
 }
 
-bool DeviceManager_VK::BeginFrame()
+bool DeviceManager_VK::beginFrame()
 {
-    MaybeRecreateSwapchain();
+    maybeRecreateSwapchain();
 
     const auto& semaphore = m_PresentSemaphores[m_PresentSemaphoreIndex];
 
@@ -1168,7 +1162,7 @@ bool DeviceManager_VK::BeginFrame()
 
     if (res == vk::Result::eErrorOutOfDateKHR)
     {
-        RequestRecreateSwapchain();
+        requestRecreateSwapchain();
         return false;
     }
     else
@@ -1180,7 +1174,7 @@ bool DeviceManager_VK::BeginFrame()
     return true;
 }
 
-void DeviceManager_VK::Present()
+void DeviceManager_VK::present()
 {
     const auto& semaphore = m_PresentSemaphores[m_PresentSemaphoreIndex];
 
@@ -1200,7 +1194,7 @@ void DeviceManager_VK::Present()
     const vk::Result res = m_PresentQueue.presentKHR(&info);
     if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR)
     {
-        RequestRecreateSwapchain();
+        requestRecreateSwapchain();
     }
     else
     {
@@ -1242,7 +1236,7 @@ void DeviceManager_VK::Present()
     m_FramesInFlight.push(query);
 }
 
-DeviceManager *DeviceManager::CreateVK()
+DeviceManager *DeviceManager::createVK()
 {
     return new DeviceManager_VK();
 }
