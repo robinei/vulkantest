@@ -1156,6 +1156,8 @@ void DeviceManager_VK::DestroyDeviceAndSwapChain()
 
 bool DeviceManager_VK::BeginFrame()
 {
+    MaybeRecreateSwapchain();
+
     const auto& semaphore = m_PresentSemaphores[m_PresentSemaphoreIndex];
 
     const vk::Result res = m_VulkanDevice.acquireNextImageKHR(m_SwapChain,
@@ -1166,7 +1168,7 @@ bool DeviceManager_VK::BeginFrame()
 
     if (res == vk::Result::eErrorOutOfDateKHR)
     {
-        SetResized();
+        RequestRecreateSwapchain();
         return false;
     }
     else
@@ -1198,7 +1200,7 @@ void DeviceManager_VK::Present()
     const vk::Result res = m_PresentQueue.presentKHR(&info);
     if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR)
     {
-        SetResized();
+        RequestRecreateSwapchain();
     }
     else
     {

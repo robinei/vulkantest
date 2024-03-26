@@ -127,7 +127,7 @@ const DeviceCreationParameters& DeviceManager::GetDeviceParams()
 
 void DeviceManager::MaybeRecreateSwapchain()
 {
-    if (m_Resized || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
+    if (m_RequestedRecreateSwapchain || (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
     {
         ReleaseFramebuffers();
 
@@ -137,7 +137,7 @@ void DeviceManager::MaybeRecreateSwapchain()
         CreateFramebuffers();
     }
 
-    m_Resized = false;
+    m_RequestedRecreateSwapchain = false;
     m_DeviceParams.vsyncEnabled = m_RequestedVSync;
 }
 

@@ -134,8 +134,6 @@ public:
     // Note: a call to CreateInstance() or Create*Device*() is required before EnumerateAdapters().
     virtual bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) = 0;
 
-    void MaybeRecreateSwapchain(); // call before BeginFrame()
-
     virtual bool BeginFrame() = 0;
     virtual void Present() = 0;
 
@@ -146,7 +144,8 @@ public:
     const DeviceCreationParameters& GetDeviceParams();
     [[nodiscard]] bool IsVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
     virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; /* will be processed later */ }
-    void SetResized() { m_Resized = true; }
+    void RequestRecreateSwapchain() { m_RequestedRecreateSwapchain = true; }
+    bool IsRecreateSwapchainRequested() { return m_RequestedRecreateSwapchain; }
 
     virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
     virtual nvrhi::ITexture* GetBackBuffer(uint32_t index) = 0;
@@ -171,7 +170,7 @@ protected:
     DeviceCreationParameters m_DeviceParams;
     bool m_RequestedVSync = false;
     bool m_InstanceCreated = false;
-    std::atomic<bool> m_Resized;
+    std::atomic<bool> m_RequestedRecreateSwapchain;
 
     std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
 
@@ -180,6 +179,7 @@ protected:
     void ReleaseFramebuffers();
     void CreateFramebuffers();
     nvrhi::TextureHandle CreateDepthBuffer();
+    void MaybeRecreateSwapchain();
 
     // device-specific methods
     virtual bool CreateInstanceInternal() = 0;

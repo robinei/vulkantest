@@ -59,7 +59,7 @@ static int EventWatcherCallback(void *userdata, SDL_Event *event) {
     switch (event->type) {
     case SDL_WINDOWEVENT_RESIZED:
     case SDL_WINDOWEVENT_SIZE_CHANGED:
-        deviceManager->SetResized();
+        deviceManager->RequestRecreateSwapchain();
         break;
     }
     return 0;
@@ -150,6 +150,7 @@ int main(int argc, char* argv[]) {
     params.logger = &logger;
     params.enableDebugRuntime = true;
     params.enableNvrhiValidationLayer = true;
+    params.vsyncEnabled = true;
 
     SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) == 0);
@@ -253,14 +254,14 @@ int main(int argc, char* argv[]) {
     bool running = true;
     while (running) {
         SDL_Event event;
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&event) && !deviceManager->IsRecreateSwapchainRequested()) {
             switch (event.type) {
             case SDL_QUIT:
                 running = false;
                 break;
             case SDL_WINDOWEVENT_RESIZED:
             case SDL_WINDOWEVENT_SIZE_CHANGED:
-                deviceManager->SetResized();
+                deviceManager->RequestRecreateSwapchain();
                 break;
             case SDL_KEYDOWN:
                 switch (event.key.keysym.sym) {
@@ -272,8 +273,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-
-        deviceManager->MaybeRecreateSwapchain();
 
         if (deviceManager->BeginFrame()) {
             nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();
@@ -300,7 +299,6 @@ int main(int argc, char* argv[]) {
             deviceManager->Present();
         }
 
-        SDL_Delay(0);
         device->runGarbageCollection();
     }
 
