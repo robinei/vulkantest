@@ -16,10 +16,8 @@
 #include <SDL2/SDL_vulkan.h>
 
 #include "DeviceManager.h"
+#include "AssetLoader.h"
 #include <nvrhi/utils.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
 
 class SdlLogger : public Logger {
     void logMessage(LogLevel level, const char *messageText) override {
@@ -65,62 +63,6 @@ static int EventWatcherCallback(void *userdata, SDL_Event *event) {
     return 0;
 }
 
-static char *loadFile(const char *path, size_t &size) {
-    FILE *fp = fopen(path, "rb");
-    assert(fp);
-    fseek(fp, 0, SEEK_END);
-    size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    char *buf = (char *)malloc(size + 1);
-    size_t n = fread(buf, 1, size, fp);
-    assert(n == size);
-    buf[size] = '\0';
-    return buf;
-}
-
-static nvrhi::ShaderHandle loadShader(nvrhi::IDevice *device, const char *path, nvrhi::ShaderType type) {
-    size_t size;
-    char *buf = loadFile(path, size);
-    nvrhi::ShaderHandle handle = device->createShader(nvrhi::ShaderDesc(type), buf, size);
-    free(buf);
-    return handle;
-}
-
-static nvrhi::TextureHandle loadTexture(nvrhi::IDevice *device, nvrhi::CommandListHandle commandList, const char *filename) {
-    int width, height, comp;
-    int ok = stbi_info(filename, &width, &height, &comp);
-    assert(ok);
-
-    int req_comp = 0;
-    nvrhi::Format format;
-    switch (comp) {
-        case 1: format = nvrhi::Format::R8_UNORM; break;
-        case 2: format = nvrhi::Format::RG8_UNORM; break;
-        case 3:
-        case 4: format = nvrhi::Format::SRGBA8_UNORM; req_comp = 4; break;
-        default: assert(false);
-    }
-
-    stbi_uc *buf = stbi_load(filename, &width, &height, &comp, req_comp);
-    assert(buf);
-
-    auto textureDesc = nvrhi::TextureDesc()
-        .setDimension(nvrhi::TextureDimension::Texture2D)
-        .setWidth(width)
-        .setHeight(height)
-        .setFormat(format)
-        .setInitialState(nvrhi::ResourceStates::ShaderResource)
-        .setKeepInitialState(true)
-        .setDebugName(filename);
-    nvrhi::TextureHandle texture = device->createTexture(textureDesc);
-    assert(texture);
-    logger.debug("Loaded texture %s (%d x %d x %d/%d)", filename, width, height, comp, req_comp);
-
-    commandList->writeTexture(texture, /* arraySlice = */ 0, /* mipLevel = */ 0, buf, width*req_comp);
-    free(buf);
-
-    return texture;
-}
 
 struct Vertex {
     float position[3];
@@ -184,6 +126,7 @@ int main(int argc, char* argv[]) {
     deviceManager->CreateWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->GetDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
+    AssetLoader *assetLoader = new AssetLoader(device, &logger);
 
     nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
         .setByteSize(sizeof(modelVertices))
@@ -191,10 +134,13 @@ int main(int argc, char* argv[]) {
         .setInitialState(nvrhi::ResourceStates::VertexBuffer)
         .setKeepInitialState(true) // enable fully automatic state tracking
         .setDebugName("Vertex Buffer"));
-    nvrhi::ShaderHandle vertShader = loadShader(device, "shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
-    nvrhi::ShaderHandle fragShader = loadShader(device, "shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
+    
+    nvrhi::ShaderHandle vertShader = assetLoader->loadShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
+    nvrhi::ShaderHandle fragShader = assetLoader->loadShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
+    nvrhi::TextureHandle texture = assetLoader->loadTexture("assets/skyboxes/default_right1.jpg");
+    assetLoader->finishResouceUploads();
+
     commandList->open();
-    nvrhi::TextureHandle texture = loadTexture(device, commandList, "assets/skyboxes/default_right1.jpg");
     commandList->writeBuffer(vertexBuffer, modelVertices, sizeof(modelVertices));
     commandList->close();
     device->executeCommandList(commandList);
@@ -211,6 +157,7 @@ int main(int argc, char* argv[]) {
         bindingLayout = device->createBindingLayout(layoutDesc);
 
         nvrhi::VertexAttributeDesc attributes[] = {
+        
             nvrhi::VertexAttributeDesc()
                 .setName("POSITION")
                 .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -274,6 +221,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
+
         if (deviceManager->BeginFrame()) {
             nvrhi::IFramebuffer *framebuffer = deviceManager->GetCurrentFramebuffer();
 
@@ -312,6 +261,7 @@ int main(int argc, char* argv[]) {
     vertShader = nullptr;
     fragShader = nullptr;
     commandList = nullptr;
+    delete assetLoader;
     deviceManager->Destroy();
     delete deviceManager;
 
