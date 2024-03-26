@@ -43,6 +43,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 class DeviceManager_VK : public DeviceManager
 {
 public:
+    ~DeviceManager_VK() { destroy(); }
+
     [[nodiscard]] nvrhi::IDevice* getDevice() const override
     {
         if (m_ValidationLayer)

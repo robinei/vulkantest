@@ -1,4 +1,5 @@
 #include <vector>
+#include <memory>
 #include <cstdint>
 #include <cassert>
 
@@ -121,12 +122,12 @@ int main(int argc, char* argv[]) {
         return true;
     };
 
-    DeviceManager *deviceManager = DeviceManager::create(nvrhi::GraphicsAPI::VULKAN);
-    SDL_AddEventWatch(EventWatcherCallback, deviceManager);
+    std::unique_ptr<DeviceManager> deviceManager(DeviceManager::create(nvrhi::GraphicsAPI::VULKAN));
+    SDL_AddEventWatch(EventWatcherCallback, deviceManager.get());
     deviceManager->createWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
-    AssetLoader *assetLoader = new AssetLoader(device, &logger);
+    std::unique_ptr<AssetLoader> assetLoader(new AssetLoader(device, &logger));
 
     nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
         .setByteSize(sizeof(modelVertices))
@@ -135,29 +136,28 @@ int main(int argc, char* argv[]) {
         .setKeepInitialState(true) // enable fully automatic state tracking
         .setDebugName("Vertex Buffer"));
     
-    nvrhi::ShaderHandle vertShader = assetLoader->loadShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
-    nvrhi::ShaderHandle fragShader = assetLoader->loadShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
-    nvrhi::TextureHandle texture = assetLoader->loadTexture("assets/skyboxes/default_right1.jpg");
-    assetLoader->finishResouceUploads();
-
-    commandList->open();
-    commandList->writeBuffer(vertexBuffer, modelVertices, sizeof(modelVertices));
-    commandList->close();
-    device->executeCommandList(commandList);
-    
-    nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::GraphicsPipelineHandle graphicsPipeline;
+    nvrhi::BindingSetHandle bindingSet;
     {
+        nvrhi::ShaderHandle vertShader = assetLoader->loadShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
+        nvrhi::ShaderHandle fragShader = assetLoader->loadShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
+        nvrhi::TextureHandle texture = assetLoader->loadTexture("assets/skyboxes/default_right1.jpg");
+        assetLoader->finishResouceUploads();
+
+        commandList->open();
+        commandList->writeBuffer(vertexBuffer, modelVertices, sizeof(modelVertices));
+        commandList->close();
+        device->executeCommandList(commandList);
+
         auto layoutDesc = nvrhi::BindingLayoutDesc()
             .setVisibility(nvrhi::ShaderType::All)
             .addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(float)*16))
             .addItem(nvrhi::BindingLayoutItem::Sampler(0))
             .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
         layoutDesc.bindingOffsets.setSamplerOffset(0);
-        bindingLayout = device->createBindingLayout(layoutDesc);
+        nvrhi::BindingLayoutHandle bindingLayout = device->createBindingLayout(layoutDesc);
 
         nvrhi::VertexAttributeDesc attributes[] = {
-        
             nvrhi::VertexAttributeDesc()
                 .setName("POSITION")
                 .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -184,19 +184,20 @@ int main(int argc, char* argv[]) {
         //pipelineDesc.renderState.rasterState.setCullNone();
         //pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
         graphicsPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->getCurrentFramebuffer());
+
+        auto samplerDesc = nvrhi::SamplerDesc()
+            .setAllFilters(true)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+        samplerDesc.setAllFilters(true);
+        auto linearClampSampler = device->createSampler(samplerDesc);
+        
+        bindingSet = device->createBindingSet(nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture)), bindingLayout);
     }
 
-    auto samplerDesc = nvrhi::SamplerDesc()
-        .setAllFilters(true)
-        .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
-    samplerDesc.setAllFilters(true);
-    auto linearClampSampler = device->createSampler(samplerDesc);
-
     logger.debug("Initialized with errors: %s", SDL_GetError());
-    nvrhi::BindingSetHandle bindingSet = device->createBindingSet(nvrhi::BindingSetDesc()
-        .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16))
-        .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
-        .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture)), bindingLayout);
 
     bool running = true;
     while (running) {
@@ -220,6 +221,8 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
+
+        // game update should be here
 
         assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
 
@@ -252,18 +255,12 @@ int main(int argc, char* argv[]) {
     }
 
     device->waitForIdle();
-    linearClampSampler = nullptr;
     bindingSet = nullptr;
     vertexBuffer = nullptr;
     graphicsPipeline = nullptr;
-    bindingLayout = nullptr;
-    texture = nullptr;
-    vertShader = nullptr;
-    fragShader = nullptr;
     commandList = nullptr;
-    delete assetLoader;
-    deviceManager->destroy();
-    delete deviceManager;
+    assetLoader = nullptr;
+    deviceManager = nullptr;
 
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
