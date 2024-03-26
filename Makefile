@@ -14,14 +14,19 @@ FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
 C_SOURCES=$(call rwildcard,src,*.c)
 CXX_SOURCES=$(call rwildcard,src,*.cpp)
 
-CFLAGS=-c -I./src/deps/include -g
+CFLAGS=-c -I./src/deps/include -Wall -Wno-strict-aliasing -Wno-interference-size -g -O2
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS=-lSDL2 -lSDL2main -lvulkan
+LDFLAGS=-lSDL2 -lSDL2main -lvulkan -latomic
 
 
 SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
-EXECUTABLE=vulkantest
+
+ifeq ($(OS),Windows_NT)
+	EXECUTABLE=vulkantest.exe
+else
+	EXECUTABLE=vulkantest
+endif
 
 .PHONY: all
 all: rebuild
@@ -39,7 +44,6 @@ clean:
 	find -name '*.o' | xargs $(RM)
 	find -name '*.spv' | xargs $(RM)
 	$(RM) $(EXECUTABLE)
-	$(RM) $(EXECUTABLE).exe
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<

@@ -85,7 +85,9 @@
         "valarray": "cpp",
         "regex": "cpp",
         "*.def": "cpp",
-        "*.inc": "cpp"
+        "*.inc": "cpp",
+        "codecvt": "cpp",
+        "*.ipp": "cpp"
     },
     "files.exclude": {
         "**/*.o": true,

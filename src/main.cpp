@@ -18,6 +18,7 @@
 
 #include "DeviceManager.h"
 #include "AssetLoader.h"
+#include "JobSystem.h"
 #include <nvrhi/utils.h>
 
 class SdlLogger : public Logger {
@@ -42,12 +43,14 @@ class SdlLogger : public Logger {
     }
 };
 
-static SdlLogger logger;
+
+static SdlLogger sdlLogger;
+Logger *const logger = &sdlLogger;
 
 
 #define SDL_CHECK(Cond) do { \
     if (!(Cond)) { \
-        logger.critical(#Cond " failed: %s", SDL_GetError()); \
+        logger->critical(#Cond " failed: %s", SDL_GetError()); \
         return 1; \
     } \
 } while(0)
@@ -89,8 +92,9 @@ static const float identityMatrix[16] = {
 };
 
 int main(int argc, char* argv[]) {
+    startJobSystem();
     DeviceCreationParameters params;
-    params.logger = &logger;
+    params.logger = logger;
     params.enableDebugRuntime = true;
     params.enableNvrhiValidationLayer = true;
     params.vsyncEnabled = true;
@@ -114,11 +118,11 @@ int main(int argc, char* argv[]) {
 
     params.createSurfaceCallback = [&](VkInstance vkInst, VkSurfaceKHR *surface) {
         if (!SDL_Vulkan_CreateSurface(window, vkInst, surface)) {
-            logger.critical("Error creating Vulkan surface: %s", SDL_GetError());
+            logger->critical("Error creating Vulkan surface: %s", SDL_GetError());
             return false;
         }
         assert(surface);
-        logger.debug("Created SDL Vulkan surface.");
+        logger->debug("Created SDL Vulkan surface.");
         return true;
     };
 
@@ -127,7 +131,7 @@ int main(int argc, char* argv[]) {
     deviceManager->createWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
-    std::unique_ptr<AssetLoader> assetLoader(new AssetLoader(device, &logger));
+    std::unique_ptr<AssetLoader> assetLoader(new AssetLoader(device, logger));
 
     nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
         .setByteSize(sizeof(modelVertices))
@@ -197,10 +201,29 @@ int main(int argc, char* argv[]) {
             .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture)), bindingLayout);
     }
 
-    logger.debug("Initialized with errors: %s", SDL_GetError());
+    logger->debug("Initialized with errors: %s", SDL_GetError());
+
+    uint64_t start = SDL_GetTicks64();
+    std::atomic<int> counter(0);
+    {
+        JobScope scope;
+        for (int i = 0; i < 1000; ++i) {
+            enqueueJob([&] {
+                JobScope scope2(scope);
+                for (int j = 0; j < 1000; ++j) {
+                    enqueueJob([&] {
+                        ++counter;
+                    });
+                }
+            });
+        }
+    }
+    uint64_t end = SDL_GetTicks64();
+    logger->info("Test counter: %d in %d ms (active: %d, sleeping: %d)", (int)counter, end-start);
 
     bool running = true;
     while (running) {
+        JobScope jobScope;
         SDL_Event event;
         while (SDL_PollEvent(&event) && !deviceManager->isRecreateSwapchainRequested()) {
             switch (event.type) {
@@ -224,6 +247,7 @@ int main(int argc, char* argv[]) {
 
         // game update should be here
 
+        jobScope.dispatchJobs(); // let all update jobs finish before we start rendering
         assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
 
         if (deviceManager->beginFrame()) {
@@ -265,6 +289,8 @@ int main(int argc, char* argv[]) {
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
-    logger.debug("Cleaned up with errors: %s", SDL_GetError());
+    logger->debug("stop");
+    stopJobSystem();
+    logger->debug("Cleaned up with errors: %s", SDL_GetError());
     return 0;
 }

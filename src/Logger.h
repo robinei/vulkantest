@@ -84,3 +84,5 @@ public:
         }
     }
 };
+
+extern Logger *const logger;
