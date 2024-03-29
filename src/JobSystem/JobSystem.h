@@ -28,7 +28,7 @@ public:
     JobScope(const JobScope&) = delete;
     JobScope& operator=(const JobScope&) = delete;
 
-    void enqueue(const class Job &func, JobType type = JobType::NORMAL);
+    void enqueue(const class Job &job, JobType type = JobType::NORMAL);
     void dispatch();
 };
 
@@ -65,7 +65,7 @@ class Job {
         --scope->pendingCount;
     }
 
-    static void enqueueBackgroundJob(const Job &func);
+    static void enqueueBackgroundJob(const Job &job);
 
 public:
     Job() : scope(nullptr), invoker(nullptr) { }
@@ -75,7 +75,7 @@ public:
         new (data) Helper<Func>(func);
     }
 
-    static void enqueue(const Job &func, JobType type = JobType::NORMAL);
+    static void enqueue(const Job &job, JobType type = JobType::NORMAL);
 };
 
 static_assert(sizeof(Job) == 64);
@@ -83,6 +83,7 @@ static_assert(sizeof(Job) == 64);
 
 class JobSystem {
 public:
+    static void modifyBackgroundConcurrency(int diff);
     static void dispatch();
     static void start();
     static void stop();

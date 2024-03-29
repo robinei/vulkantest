@@ -19,6 +19,9 @@
 #define INC_STAT(stat)
 #endif
 
+// max number of concurrent background jobs
+#define DEFAULT_BACKGROUND_CONCURRENCY 2
+
 
 typedef WorkStealingQueue<Job> JobQueue;
 typedef rigtorp::MPMCQueue<Job> BGQueue;
@@ -29,7 +32,8 @@ static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
 static BGQueue bgQueue(65536);
-static std::atomic<int> bgSemaphore(2); // allow maximum two concurrent background jobs
+static std::atomic<int> bgConcurrency(DEFAULT_BACKGROUND_CONCURRENCY);
+static std::atomic<int> bgSemaphore(DEFAULT_BACKGROUND_CONCURRENCY);
 static JobScope rootScope((ThreadContext *)nullptr);
 
 
@@ -55,10 +59,6 @@ public:
         threadScope = new JobScope(this);
     }
 
-    void dispatchActiveScope() {
-        activeScope->dispatch();
-    }
-
     void finish() {
         threadScope->dispatch();
         delete threadScope;
@@ -71,10 +71,15 @@ public:
     }
 
     void enqueueJob(const Job &job) {
+        assert(queue);
         Job modifiedJob(job);
         modifiedJob.scope = activeScope;
         ++activeScope->pendingCount;
         queue->push(modifiedJob);
+    }
+
+    void dispatchActiveScope() {
+        activeScope->dispatch();
     }
 
     bool dispatchSingleJob() {
@@ -221,6 +226,7 @@ void JobScope::enqueue(const Job &job, JobType type) {
 }
 
 void JobScope::dispatch() {
+    assert(threadContext->queue);
     while (pendingCount) {
         if (!threadContext->dispatchSingleJob()) {
             PAUSE();
@@ -247,6 +253,12 @@ void Job::enqueue(const Job &job, JobType type) {
     }
 }
 
+
+void JobSystem::modifyBackgroundConcurrency(int diff) {
+    bgConcurrency += diff;
+    bgSemaphore += diff;
+    assert(bgConcurrency > 0);
+}
 
 void JobSystem::dispatch() {
     currentThreadContext.dispatchActiveScope();
