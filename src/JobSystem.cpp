@@ -1,6 +1,7 @@
 #include "JobSystem.h"
 
 #include "wsq.hpp"
+#include "MPMCQueue.h"
 #include <thread>
 #include <chrono>
 #include <cstdio>
@@ -11,7 +12,7 @@
 #define SET_THREAD_NAME(name) pthread_setname_np(pthread_self(), name)
 #define PAUSE() _mm_pause()
 
-#define PRINT_STATS 0
+#define PRINT_STATS 1
 #if PRINT_STATS
 #define INC_STAT(stat) ++(stat)
 #else
@@ -20,19 +21,23 @@
 
 
 typedef WorkStealingQueue<JobFunc> JobQueue;
+typedef rigtorp::MPMCQueue<JobFunc> BGQueue;
 
 static std::atomic<bool> workersShouldStop;
 static int workerCount;
 static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
+static BGQueue bgQueue(65536);
+static std::atomic<int> bgSemaphore(2); // allow maximum two concurrent background jobs
+static JobScope rootScope((ThreadContext *)nullptr);
 
 
 struct ThreadContext {
     JobQueue *queue;
     int stealStart; // at which worker index to start stealing probe
-    JobScope threadScope;
     JobScope *activeScope;
+    JobScope *threadScope;
     char threadName[16];
 
 #if PRINT_STATS
@@ -42,20 +47,26 @@ struct ThreadContext {
     int runOwnCount = 0;
     int stealMainCount = 0;
     int stealWorkerCount = 0;
+    int bgCount = 0;
 #endif
 
-    ThreadContext() : threadScope(*this), activeScope(&threadScope) { }
+    ThreadContext() {
+        threadScope = new JobScope(this);
+    }
 
     void dispatchJobs() {
         activeScope->dispatchJobs();
     }
 
     void finish() {
-        threadScope.dispatchJobs();
-#if PRINT_STATS
-        printf("%s  S:%d Y:%d P:%d  [self:%d, msteal:%d, wsteal:%d]\n", threadName, sleepCount, yieldCount, pauseCount, runOwnCount, stealMainCount, stealWorkerCount);
-#endif
+        threadScope->dispatchJobs();
+        delete threadScope;
+        threadScope = nullptr;
+        activeScope = nullptr;
         queue = nullptr;
+#if PRINT_STATS
+        printf("%s   S:%d Y:%d P:%d   s:%d mt:%d wt:%d bg:%d\n", threadName, sleepCount, yieldCount, pauseCount, runOwnCount, stealMainCount, stealWorkerCount, bgCount);
+#endif
     }
 
     void enqueueJob(JobFunc &func) {
@@ -93,14 +104,24 @@ struct ThreadContext {
                 auto job = workerQueues[idx].steal();
                 if (job.has_value()) {
                     LOG_DEBUG("%s stealing from worker%d\n", threadName, idx);
-                    stealStart = idx; // next time, start trying to steal from this queue
                     INC_STAT(stealWorkerCount);
+                    stealStart = idx; // next time, start trying to steal from this queue
                     job->invoke();
                     return true;
                 }
             }
         }
-
+    
+        // check if we should do a background job
+        if (--bgSemaphore >= 0) {
+            JobFunc bgJob;
+            if (bgQueue.try_pop(bgJob)) {
+                bgJob.invoke();
+                ++bgSemaphore;
+                return true;
+            }
+        }
+        ++bgSemaphore;
         return false;
     }
 
@@ -120,7 +141,7 @@ struct ThreadContext {
 
             // we couldn't find any more jobs to run (after looking once at each queue)
 
-            // make this loop progressively lighter on the CPU by yielding more time as more and more iteratons pass without work done
+            // make this loop progressively lighter on the CPU by yielding more CPU time as more and more iteratons pass without work done
             if (++joblessIterations < 1000) {
                 INC_STAT(pauseCount);
                 PAUSE();
@@ -142,47 +163,71 @@ static thread_local ThreadContext currentThreadContext;
 
 
 JobScope::JobScope() :
-    threadContext(currentThreadContext),
-    prevActiveScope(threadContext.activeScope),
-    parentScope(threadContext.activeScope),
+    threadContext(&currentThreadContext),
+    prevActiveScope(threadContext->activeScope),
+    parentScope(threadContext->activeScope),
     pendingCount(0)
 {
-    threadContext.activeScope = this;
+    assert(threadContext->queue);
+    threadContext->activeScope = this;
     ++parentScope->pendingCount;
 }
 
 JobScope::JobScope(JobScope &parentScope) :
-    threadContext(currentThreadContext),
-    prevActiveScope(threadContext.activeScope),
+    threadContext(&currentThreadContext),
+    prevActiveScope(threadContext->activeScope),
     parentScope(&parentScope),
     pendingCount(0)
 {
-    threadContext.activeScope = this;
+    assert(threadContext->queue);
+    threadContext->activeScope = this;
     ++parentScope.pendingCount;
 }
 
-JobScope::JobScope(ThreadContext &threadContext) :
+JobScope::JobScope(ThreadContext *threadContext) :
     threadContext(threadContext),
     prevActiveScope(nullptr),
     parentScope(nullptr),
     pendingCount(0)
-{ }
-
-JobScope::~JobScope() {
-    dispatchJobs();
-    threadContext.activeScope = prevActiveScope;  
-    if (parentScope) {
-        --parentScope->pendingCount;
+{
+    if (threadContext) {
+        threadContext->activeScope = this;
+        parentScope = &rootScope;
+        ++parentScope->pendingCount;
     }
 }
 
-void JobScope::doEnqueueJob(JobFunc &func) {
-    threadContext.enqueueJob(func);
+JobScope::~JobScope() {
+    if (threadContext) {
+        dispatchJobs();
+        threadContext->activeScope = prevActiveScope;
+        if (parentScope) {
+            --parentScope->pendingCount;
+        }
+    }
+}
+
+void JobScope::enqueueJobOnCapturedContext(JobFunc &func) {
+    threadContext->enqueueJob(func);
+}
+
+void JobScope::_enqueueJob(JobFunc &func) {
+    currentThreadContext.enqueueJob(func);
+}
+
+void JobScope::_enqueueBackgroundJob(JobFunc &func) {
+    func.scope = &rootScope;
+    ++rootScope.pendingCount;
+    bgQueue.push(func);
+}
+
+void JobScope::_assertRootScopeEmpty() {
+    assert(rootScope.pendingCount == 0);
 }
 
 void JobScope::dispatchJobs() {
     while (pendingCount) {
-        if (!threadContext.dispatchSingleJob()) {
+        if (!threadContext->dispatchSingleJob()) {
             PAUSE();
         }
     }
@@ -211,6 +256,7 @@ void stopJobSystem() {
         thread.join();
     }
     workersShouldStop = false;
+    JobScope::_assertRootScopeEmpty();
     workerThreads.clear();
     delete [] workerQueues;
     workerQueues = nullptr;
@@ -218,8 +264,4 @@ void stopJobSystem() {
 
 void dispatchJobs() {
     currentThreadContext.dispatchJobs();
-}
-
-void _enqueueJobInternal(JobFunc &func) {
-    currentThreadContext.enqueueJob(func);
 }

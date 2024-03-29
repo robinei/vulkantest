@@ -5,44 +5,42 @@
 #include <cstdint>
 
 
-void startJobSystem();
-void stopJobSystem();
-void dispatchJobs();
-
 class JobFunc;
-void _enqueueJobInternal(JobFunc &func);
-
-template<class Func>
-inline void enqueueJob(Func func) {
-    JobFunc jobFunc(func);
-    _enqueueJobInternal(jobFunc);
-}
-
 
 class JobScope {
     friend JobFunc;
     friend struct ThreadContext;
 
-    struct ThreadContext &threadContext;
+    struct ThreadContext *threadContext;
     JobScope *prevActiveScope;
     JobScope *parentScope;
     std::atomic<uint32_t> pendingCount;
 
-    JobScope(struct ThreadContext &threadContext);
-    void doEnqueueJob(JobFunc &func);
+    void enqueueJobOnCapturedContext(JobFunc &func);
 
 public:
     JobScope();
     JobScope(JobScope &parentScope);
+    JobScope(struct ThreadContext *threadContext);
     ~JobScope();
 
     JobScope(const JobScope&) = delete;
     JobScope& operator=(const JobScope&) = delete;
 
+    static void _enqueueJob(JobFunc &func);
+    static void _enqueueBackgroundJob(JobFunc &func);
+    static void _assertRootScopeEmpty();
+
     template<class Func>
     void enqueueJob(Func func) {
         JobFunc jobFunc(func);
-        doEnqueueJob(jobFunc);
+        enqueueJobOnCapturedContext(jobFunc);
+    }
+
+    template<class Func>
+    void enqueueBackgroundJob(Func func) {
+        JobFunc jobFunc(func);
+        _enqueueBackgroundJob(jobFunc);
     }
 
     void dispatchJobs();
@@ -51,6 +49,7 @@ public:
 
 class JobFunc {
     friend struct ThreadContext;
+    friend struct JobScope;
 
     using Invoker = void (*)(void *);
     enum { MAX_DATA = 64 - sizeof(Invoker) - sizeof(JobScope *) };
@@ -89,3 +88,20 @@ public:
     }
 };
 static_assert(sizeof(JobFunc) == 64);
+
+
+void startJobSystem();
+void stopJobSystem();
+void dispatchJobs();
+
+template<class Func>
+inline void enqueueJob(Func func) {
+    JobFunc jobFunc(func);
+    JobScope::_enqueueJob(jobFunc);
+}
+
+template<class Func>
+inline void enqueueBackgroundJob(Func func) {
+    JobFunc jobFunc(func);
+    JobScope::_enqueueBackgroundJob(jobFunc);
+}

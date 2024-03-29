@@ -30,7 +30,7 @@ endif
 
 .PHONY: all
 all: rebuild
-	./$(EXECUTABLE)
+	nice -20 ./$(EXECUTABLE)
 
 .PHONY: rebuild
 rebuild: clean
