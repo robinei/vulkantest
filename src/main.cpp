@@ -92,7 +92,7 @@ static const float identityMatrix[16] = {
 };
 
 int main(int argc, char* argv[]) {
-    startJobSystem();
+    JobSystem::start();
     DeviceCreationParameters params;
     params.logger = logger;
     params.enableDebugRuntime = true;
@@ -208,10 +208,10 @@ int main(int argc, char* argv[]) {
     {
         JobScope scope;
         for (int i = 0; i < 1000; ++i) {
-            enqueueJob([&] {
+            Job::enqueue([&] {
                 JobScope scope2(scope);
                 for (int j = 0; j < 1000; ++j) {
-                    enqueueJob([&] {
+                    Job::enqueue([&] {
                         ++counter;
                     });
                 }
@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
 
         // game update should be here
 
-        jobScope.dispatchJobs(); // let all update jobs finish before we start rendering
+        jobScope.dispatch(); // let all update jobs finish before we start rendering
         assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
 
         if (deviceManager->beginFrame()) {
@@ -290,7 +290,7 @@ int main(int argc, char* argv[]) {
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
     logger->debug("stop");
-    stopJobSystem();
+    JobSystem::stop();
     logger->debug("Cleaned up with errors: %s", SDL_GetError());
     return 0;
 }

@@ -2,54 +2,40 @@
 
 #include <type_traits>
 #include <atomic>
-#include <cstdint>
 
+enum class JobType {
+    NORMAL,
+    BACKGROUND,
+};
 
-class JobFunc;
 
 class JobScope {
-    friend JobFunc;
-    friend struct ThreadContext;
+    friend class Job;
+    friend class JobSystem;
+    friend class ThreadContext;
 
-    struct ThreadContext *threadContext;
+    class ThreadContext *threadContext;
     JobScope *prevActiveScope;
     JobScope *parentScope;
-    std::atomic<uint32_t> pendingCount;
-
-    void enqueueJobOnCapturedContext(JobFunc &func);
+    std::atomic<int> pendingCount;
 
 public:
     JobScope();
     JobScope(JobScope &parentScope);
-    JobScope(struct ThreadContext *threadContext);
+    JobScope(class ThreadContext *threadContext);
     ~JobScope();
 
     JobScope(const JobScope&) = delete;
     JobScope& operator=(const JobScope&) = delete;
 
-    static void _enqueueJob(JobFunc &func);
-    static void _enqueueBackgroundJob(JobFunc &func);
-    static void _assertRootScopeEmpty();
-
-    template<class Func>
-    void enqueueJob(Func func) {
-        JobFunc jobFunc(func);
-        enqueueJobOnCapturedContext(jobFunc);
-    }
-
-    template<class Func>
-    void enqueueBackgroundJob(Func func) {
-        JobFunc jobFunc(func);
-        _enqueueBackgroundJob(jobFunc);
-    }
-
-    void dispatchJobs();
+    void enqueue(const class Job &func, JobType type = JobType::NORMAL);
+    void dispatch();
 };
 
 
-class JobFunc {
-    friend struct ThreadContext;
-    friend struct JobScope;
+class Job {
+    friend JobScope;
+    friend class ThreadContext;
 
     using Invoker = void (*)(void *);
     enum { MAX_DATA = 64 - sizeof(Invoker) - sizeof(JobScope *) };
@@ -74,34 +60,30 @@ class JobFunc {
         }
     };
 
-public:
-    JobFunc() = default;
-
-    template <typename Func>
-    JobFunc(const Func &func) : scope(nullptr), invoker(Helper<Func>::invoke) {
-        new (data) Helper<Func>(func);
-    }
-
     void invoke() {
         invoker((void *)data);
         --scope->pendingCount;
     }
+
+    static void enqueueBackgroundJob(const Job &func);
+
+public:
+    Job() : scope(nullptr), invoker(nullptr) { }
+
+    template <typename Func>
+    Job(const Func &func) : scope(nullptr), invoker(Helper<Func>::invoke) {
+        new (data) Helper<Func>(func);
+    }
+
+    static void enqueue(const Job &func, JobType type = JobType::NORMAL);
 };
-static_assert(sizeof(JobFunc) == 64);
+
+static_assert(sizeof(Job) == 64);
 
 
-void startJobSystem();
-void stopJobSystem();
-void dispatchJobs();
-
-template<class Func>
-inline void enqueueJob(Func func) {
-    JobFunc jobFunc(func);
-    JobScope::_enqueueJob(jobFunc);
-}
-
-template<class Func>
-inline void enqueueBackgroundJob(Func func) {
-    JobFunc jobFunc(func);
-    JobScope::_enqueueBackgroundJob(jobFunc);
-}
+class JobSystem {
+public:
+    static void dispatch();
+    static void start();
+    static void stop();
+};
