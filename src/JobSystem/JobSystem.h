@@ -1,16 +1,17 @@
 #pragma once
 
-#include <type_traits>
 #include <atomic>
+#include <utility>
+
+class Job;
 
 enum class JobType {
     NORMAL,
     BACKGROUND,
 };
 
-
 class JobScope {
-    friend class Job;
+    friend Job;
     friend class JobSystem;
     friend class ThreadContext;
 
@@ -18,6 +19,8 @@ class JobScope {
     JobScope *prevActiveScope;
     JobScope *parentScope;
     std::atomic<int> pendingCount;
+
+    void enqueueNormalJob(Job &job);
 
 public:
     JobScope();
@@ -28,10 +31,11 @@ public:
     JobScope(const JobScope&) = delete;
     JobScope& operator=(const JobScope&) = delete;
 
-    void enqueue(const class Job &job, JobType type = JobType::NORMAL);
+    template <typename Func>
+    inline void enqueue(Func &&func, JobType type = JobType::NORMAL);
+
     void dispatch();
 };
-
 
 class Job {
     friend JobScope;
@@ -46,40 +50,65 @@ class Job {
 
     template <typename Func>
     struct Helper {
-        static_assert(std::is_trivially_copyable_v<Func> == true);
-        static_assert(std::is_invocable_v<Func> == true);
         static_assert(sizeof(Func) <= MAX_DATA);
 
         Func func;
 
-        Helper(const Func &func) : func(func) {}
+        Helper(Func &&func) : func(std::forward<Func>(func)) {}
 
-        static void invoke(void *data) {
+        static void invoker(void *data) {
             Helper *self = static_cast<Helper *>(data);
             self->func();
+            self->func.~Func(); // all enqueued jobs will be invoked precisely 1 time, so explicitly calling the destructor like this is suitable
         }
     };
 
-    void invoke() {
+    template <typename Func>
+    void setFunc(Func &&func) {
+        scope = nullptr; // will be set when enqueued
+        invoker = Helper<Func>::invoker;
+        new (data) Helper<Func>(std::forward<Func>(func));
+    }
+
+    void run() {
         invoker((void *)data);
         --scope->pendingCount;
     }
 
-    static void enqueueBackgroundJob(const Job &job);
+    static void enqueueNormalJob(Job &job);
+    static void enqueueBackgroundJob(Job &job);
 
 public:
-    Job() : scope(nullptr), invoker(nullptr) { }
-
     template <typename Func>
-    Job(const Func &func) : scope(nullptr), invoker(Helper<Func>::invoke) {
-        new (data) Helper<Func>(func);
+    inline static void enqueue(Func &&func, JobType type = JobType::NORMAL) {
+        Job job;
+        job.setFunc(std::forward<Func>(func));
+        switch (type) {
+        case JobType::NORMAL:
+            enqueueNormalJob(job);
+            break;
+        case JobType::BACKGROUND:
+            enqueueBackgroundJob(job);
+            break;
+        }
     }
-
-    static void enqueue(const Job &job, JobType type = JobType::NORMAL);
 };
 
 static_assert(sizeof(Job) == 64);
 
+template <typename Func>
+inline void JobScope::enqueue(Func &&func, JobType type) {
+    Job job;
+    job.setFunc(std::forward<Func>(func));
+    switch (type) {
+    case JobType::NORMAL:
+        enqueueNormalJob(job);
+        break;
+    case JobType::BACKGROUND:
+        Job::enqueueBackgroundJob(job);
+        break;
+    }
+}
 
 class JobSystem {
 public:

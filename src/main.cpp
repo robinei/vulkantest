@@ -68,6 +68,21 @@ static int EventWatcherCallback(void *userdata, SDL_Event *event) {
 }
 
 
+static std::atomic<int> dtorCount;
+static std::atomic<int> ctorCount;
+static std::atomic<int> cctorCount;
+static std::atomic<int> mctorCount;
+static std::atomic<int> cassignCount;
+static std::atomic<int> massignCount;
+struct Counter {
+    __attribute__((noinline)) ~Counter() { ++dtorCount; }
+    __attribute__((noinline)) Counter() { ++ctorCount; }
+    __attribute__((noinline)) Counter(const Counter &) { ++cctorCount; }
+    __attribute__((noinline)) Counter(Counter &&) { ++mctorCount; }
+    __attribute__((noinline)) Counter& operator=(const Counter& other) { ++cassignCount; return *this; }
+    __attribute__((noinline)) Counter& operator=(Counter&& other) noexcept { ++massignCount; return *this; }
+};
+
 struct Vertex {
     float position[3];
     float color[4];
@@ -90,6 +105,7 @@ static const float identityMatrix[16] = {
     0,0,1,0,
     0,0,0,1,
 };
+
 
 int main(int argc, char* argv[]) {
     JobSystem::start();
@@ -205,13 +221,14 @@ int main(int argc, char* argv[]) {
 
     uint64_t start = SDL_GetTicks64();
     std::atomic<int> counter(0);
+    Counter counterObject;
     {
         JobScope scope;
         for (int i = 0; i < 1000; ++i) {
-            Job::enqueue([&] {
+            Job::enqueue([&counter, &scope, counterObject] {
                 JobScope scope2(scope);
                 for (int j = 0; j < 1000; ++j) {
-                    Job::enqueue([&] {
+                    Job::enqueue([&counter] {
                         ++counter;
                     });
                 }
@@ -220,6 +237,7 @@ int main(int argc, char* argv[]) {
     }
     uint64_t end = SDL_GetTicks64();
     logger->info("Test counter: %d in %d ms (active: %d, sleeping: %d)", (int)counter, end-start);
+    logger->info("dtorCount %d, ctorCount: %d, cctorCount: %d, mctorCount: %d, cassignCount: %d, massignCount: %d", (int)dtorCount, (int)ctorCount, (int)cctorCount, (int)mctorCount, (int)cassignCount, (int)massignCount);
 
     bool running = true;
     while (running) {

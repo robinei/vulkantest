@@ -70,12 +70,11 @@ public:
 #endif
     }
 
-    void enqueueJob(const Job &job) {
+    void enqueueJob(Job &job) {
         assert(queue);
-        Job modifiedJob(job);
-        modifiedJob.scope = activeScope;
+        job.scope = activeScope;
         ++activeScope->pendingCount;
-        queue->push(modifiedJob);
+        queue->push(job);
     }
 
     void dispatchActiveScope() {
@@ -88,7 +87,7 @@ public:
         if (job.has_value()) {
             LOG_DEBUG("%s running own job\n", threadName);
             INC_STAT(runOwnCount);
-            job->invoke();
+            job->run();
             return true;
         }
 
@@ -98,7 +97,7 @@ public:
             if (job.has_value()) {
                 LOG_DEBUG("%s stealing from main\n", threadName);
                 INC_STAT(stealMainCount);
-                job->invoke();
+                job->run();
                 return true;
             }
         }
@@ -113,7 +112,7 @@ public:
                     LOG_DEBUG("%s stealing from worker%d\n", threadName, idx);
                     INC_STAT(stealWorkerCount);
                     stealStart = idx; // next time, start trying to steal from this queue
-                    job->invoke();
+                    job->run();
                     return true;
                 }
             }
@@ -123,7 +122,7 @@ public:
         if (--bgSemaphore >= 0) {
             Job bgJob;
             if (bgQueue.try_pop(bgJob)) {
-                bgJob.invoke();
+                bgJob.run();
                 ++bgSemaphore;
                 return true;
             }
@@ -214,15 +213,8 @@ JobScope::~JobScope() {
     }
 }
 
-void JobScope::enqueue(const Job &job, JobType type) {
-    switch (type) {
-    case JobType::NORMAL:
-        threadContext->enqueueJob(job);
-        break;
-    case JobType::BACKGROUND:
-        Job::enqueueBackgroundJob(job);
-        break;
-    }
+void JobScope::enqueueNormalJob(Job &job) {
+    threadContext->enqueueJob(job);
 }
 
 void JobScope::dispatch() {
@@ -234,23 +226,14 @@ void JobScope::dispatch() {
     }
 }
 
-
-void Job::enqueueBackgroundJob(const Job &job) {
-    Job modifiedJob(job);
-    modifiedJob.scope = &rootScope;
-    ++rootScope.pendingCount;
-    bgQueue.push(modifiedJob);
+void Job::enqueueNormalJob(Job &job) {
+    currentThreadContext.enqueueJob(job);
 }
 
-void Job::enqueue(const Job &job, JobType type) {
-    switch (type) {
-    case JobType::NORMAL:
-        currentThreadContext.enqueueJob(job);
-        break;
-    case JobType::BACKGROUND:
-        enqueueBackgroundJob(job);
-        break;
-    }
+void Job::enqueueBackgroundJob(Job &job) {
+    job.scope = &rootScope;
+    ++rootScope.pendingCount;
+    bgQueue.push(job);
 }
 
 
