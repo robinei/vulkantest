@@ -3,7 +3,7 @@ rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 MAKE=make
 CC=ccache gcc
 CXX=ccache g++
-LD=ccache g++
+LD=g++ -fuse-ld=mold
 RM=rm -f
 GLSLC=glslc
 
@@ -21,11 +21,10 @@ LDFLAGS=-lSDL2 -lSDL2main -lvulkan -latomic
 
 SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
+EXECUTABLE=vulkantest
 
 ifeq ($(OS),Windows_NT)
-	EXECUTABLE=vulkantest.exe
-else
-	EXECUTABLE=vulkantest
+	EXECUTABLE=$(EXECUTABLE).exe
 endif
 
 .PHONY: all

@@ -32,7 +32,6 @@ static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
 static BGQueue bgQueue(65536);
-static std::atomic<int> bgConcurrency(DEFAULT_BACKGROUND_CONCURRENCY);
 static std::atomic<int> bgSemaphore(DEFAULT_BACKGROUND_CONCURRENCY);
 static JobScope rootScope((ThreadContext *)nullptr);
 
@@ -43,6 +42,7 @@ public:
     int stealStart; // at which worker index to start stealing probe
     JobScope *activeScope;
     JobScope *threadScope;
+    std::atomic<int> bgQuotaUsed;
     char threadName[16];
 
 #if PRINT_STATS
@@ -122,7 +122,9 @@ public:
         if (--bgSemaphore >= 0) {
             Job bgJob;
             if (bgQueue.try_pop(bgJob)) {
+                ++bgQuotaUsed;
                 bgJob.run();
+                --bgQuotaUsed;
                 ++bgSemaphore;
                 return true;
             }
@@ -217,13 +219,24 @@ void JobScope::enqueueNormalJob(Job &job) {
     threadContext->enqueueJob(job);
 }
 
+JobScope *JobScope::getActiveScope() {
+    return currentThreadContext.activeScope;
+}
+
 void JobScope::dispatch() {
     assert(threadContext->queue);
+    // We're "blocking" this thread while possibly holding background-quota.
+    // Release any held quota for the duration, to avoid creating starvation scenarios
+    // (where this dispatch runs jobs that "dispatch-block" on further background jobs which never complete because the quota is exhausted).
+    // This can lead to the maximum background concurrency temporarily exceeding the regular limit, but that is fine.
+    int bgQuotaUsed = threadContext->bgQuotaUsed;
+    bgSemaphore += bgQuotaUsed;
     while (pendingCount) {
         if (!threadContext->dispatchSingleJob()) {
             PAUSE();
         }
     }
+    bgSemaphore -= bgQuotaUsed;
 }
 
 void Job::enqueueNormalJob(Job &job) {
@@ -238,9 +251,7 @@ void Job::enqueueBackgroundJob(Job &job) {
 
 
 void JobSystem::modifyBackgroundConcurrency(int diff) {
-    bgConcurrency += diff;
     bgSemaphore += diff;
-    assert(bgConcurrency > 0);
 }
 
 void JobSystem::dispatch() {

@@ -88,7 +88,8 @@
         "*.inc": "cpp",
         "codecvt": "cpp",
         "*.ipp": "cpp",
-        "cassert": "cpp"
+        "cassert": "cpp",
+        "stack": "cpp"
     },
     "files.exclude": {
         "**/*.o": true,

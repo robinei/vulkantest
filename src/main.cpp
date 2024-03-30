@@ -147,7 +147,7 @@ int main(int argc, char* argv[]) {
     deviceManager->createWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList();
-    std::unique_ptr<AssetLoader> assetLoader(new AssetLoader(device, logger));
+    AssetLoader::initialize(device);
 
     nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
         .setByteSize(sizeof(modelVertices))
@@ -159,10 +159,17 @@ int main(int argc, char* argv[]) {
     nvrhi::GraphicsPipelineHandle graphicsPipeline;
     nvrhi::BindingSetHandle bindingSet;
     {
-        nvrhi::ShaderHandle vertShader = assetLoader->loadShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
-        nvrhi::ShaderHandle fragShader = assetLoader->loadShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
-        nvrhi::TextureHandle texture = assetLoader->loadTexture("assets/skyboxes/default_right1.jpg");
-        assetLoader->finishResouceUploads();
+        uint64_t start = SDL_GetTicks64();
+        JobScope scope;
+        auto vertShader = AssetLoader::getShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
+        auto fragShader = AssetLoader::getShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
+        auto texture = AssetLoader::getTexture("assets/skyboxes/default_right1.jpg");
+        scope.dispatch();
+        assert(vertShader->isLoaded());
+        assert(fragShader->isLoaded());
+        assert(texture->isLoaded());
+        uint64_t end = SDL_GetTicks64();
+        logger->info("Assets loaded in %d ms", end-start);
 
         commandList->open();
         commandList->writeBuffer(vertexBuffer, modelVertices, sizeof(modelVertices));
@@ -194,12 +201,12 @@ int main(int argc, char* argv[]) {
                 .setOffset(offsetof(Vertex, texCoord))
                 .setElementStride(sizeof(Vertex)),
         };
-        nvrhi::InputLayoutHandle inputLayout = device->createInputLayout(attributes, 3, vertShader);
+        nvrhi::InputLayoutHandle inputLayout = device->createInputLayout(attributes, 3, vertShader->get());
 
         auto pipelineDesc = nvrhi::GraphicsPipelineDesc()
             .setInputLayout(inputLayout)
-            .setVertexShader(vertShader)
-            .setPixelShader(fragShader)
+            .setVertexShader(vertShader->get())
+            .setPixelShader(fragShader->get())
             .addBindingLayout(bindingLayout);
         //pipelineDesc.renderState.rasterState.setCullNone();
         //pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
@@ -214,7 +221,7 @@ int main(int argc, char* argv[]) {
         bindingSet = device->createBindingSet(nvrhi::BindingSetDesc()
             .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16))
             .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
-            .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture)), bindingLayout);
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture->get())), bindingLayout);
     }
 
     logger->debug("Initialized with errors: %s", SDL_GetError());
@@ -236,7 +243,7 @@ int main(int argc, char* argv[]) {
         }
     }
     uint64_t end = SDL_GetTicks64();
-    logger->info("Test counter: %d in %d ms (active: %d, sleeping: %d)", (int)counter, end-start);
+    logger->info("Test counter: %d in %d ms", (int)counter, end-start);
     logger->info("dtorCount %d, ctorCount: %d, cctorCount: %d, mctorCount: %d, cassignCount: %d, massignCount: %d", (int)dtorCount, (int)ctorCount, (int)cctorCount, (int)mctorCount, (int)cassignCount, (int)massignCount);
 
     bool running = true;
@@ -266,7 +273,6 @@ int main(int argc, char* argv[]) {
         // game update should be here
 
         jobScope.dispatch(); // let all update jobs finish before we start rendering
-        assetLoader->finishResouceUploads(); // finish GPU uploads before rendering
 
         if (deviceManager->beginFrame()) {
             nvrhi::IFramebuffer *framebuffer = deviceManager->getCurrentFramebuffer();
@@ -296,19 +302,19 @@ int main(int argc, char* argv[]) {
         device->runGarbageCollection();
     }
 
+    JobSystem::stop();
+    AssetLoader::cleanup();
+
     device->waitForIdle();
     bindingSet = nullptr;
     vertexBuffer = nullptr;
     graphicsPipeline = nullptr;
     commandList = nullptr;
-    assetLoader = nullptr;
     deviceManager = nullptr;
 
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
-    logger->debug("stop");
-    JobSystem::stop();
-    logger->debug("Cleaned up with errors: %s", SDL_GetError());
+    logger->debug("Exited with errors: %s", SDL_GetError());
     return 0;
 }

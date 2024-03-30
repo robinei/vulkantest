@@ -31,6 +31,12 @@ public:
     JobScope(const JobScope&) = delete;
     JobScope& operator=(const JobScope&) = delete;
 
+    static JobScope *getActiveScope();
+
+    void addPendingCount(int diff) {
+        pendingCount += diff;
+    }
+
     template <typename Func>
     inline void enqueue(Func &&func, JobType type = JobType::NORMAL);
 
