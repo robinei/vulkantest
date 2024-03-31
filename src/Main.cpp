@@ -21,6 +21,12 @@
 #include "JobSystem/JobSystem.h"
 #include <nvrhi/utils.h>
 
+
+#include "Math/Mat4.h"
+#include "Math/Quat.h"
+#include "Camera.h"
+
+
 class SdlLogger : public Logger {
     void logMessage(LogLevel level, const char *messageText) override {
         switch (level) {
@@ -99,12 +105,16 @@ static const Vertex modelVertices[] = {
     { {  1.f,  1.f, 0.f }, { 1.f, 0.f, 1.f, 1.f }, { 1.f, 0.f } },
 };
 
-static const float identityMatrix[16] = {
-    1,0,0,0,
-    0,1,0,0,
-    0,0,1,0,
-    0,0,0,1,
-};
+
+
+
+static Vec3 cursor_pos;
+
+/*static Vec3 screen_to_world(int x, int y, int w, int h) {
+    Vec3 p0 = glm::unProject(Vec3(x, h - y - 1, 0), view_matrix, projection_matrix, glm::vec4(0, 0, w, h));
+    Vec3 p1 = glm::unProject(Vec3(x, h - y - 1, 1), view_matrix, projection_matrix, glm::vec4(0, 0, w, h));
+    return Plane::XY().ray_intersect(p0, p1);
+}*/
 
 
 int main(int argc, char* argv[]) {
@@ -121,7 +131,7 @@ int main(int argc, char* argv[]) {
     SDL_Window *window = SDL_CreateWindow("vulkantest",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         params.backBufferWidth, params.backBufferHeight,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN_DESKTOP);
     SDL_CHECK(window);
     
     uint32_t extensionCount;
@@ -208,8 +218,8 @@ int main(int argc, char* argv[]) {
             .setVertexShader(vertShader->get())
             .setPixelShader(fragShader->get())
             .addBindingLayout(bindingLayout);
-        //pipelineDesc.renderState.rasterState.setCullNone();
-        //pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
+        pipelineDesc.renderState.rasterState.setCullNone();
+        pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
         graphicsPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->getCurrentFramebuffer());
 
         auto samplerDesc = nvrhi::SamplerDesc()
@@ -246,11 +256,25 @@ int main(int argc, char* argv[]) {
     logger->info("Test counter: %d in %d ms", (int)counter, end-start);
     logger->info("dtorCount %d, ctorCount: %d, cctorCount: %d, mctorCount: %d, cassignCount: %d, massignCount: %d", (int)dtorCount, (int)ctorCount, (int)cctorCount, (int)mctorCount, (int)cassignCount, (int)massignCount);
 
+    TopDownCamera camera;
+
+    Uint64 prevTicks = SDL_GetTicks64();
     bool running = true;
     while (running) {
+        Uint64 ticks = SDL_GetTicks64();
+        Uint64 tickDiff = ticks - prevTicks;
+        prevTicks = ticks;
+        float dt = (float)tickDiff / 1000.0f;
+        (void)dt;
+
+        camera.setScreenSize(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight());
+
         JobScope jobScope;
         SDL_Event event;
         while (SDL_PollEvent(&event) && !deviceManager->isRecreateSwapchainRequested()) {
+            if (camera.handleSDLEvent(&event)) {
+                continue;
+            }
             switch (event.type) {
             case SDL_QUIT:
                 running = false;
@@ -270,6 +294,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        camera.update();
         // game update should be here
 
         jobScope.dispatch(); // let all update jobs finish before we start rendering
@@ -289,7 +314,9 @@ int main(int argc, char* argv[]) {
                 .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(vertexBuffer));
             commandList->setGraphicsState(graphicsState);
 
-            commandList->setPushConstants(identityMatrix, sizeof(identityMatrix));
+            Mat4 pvm;
+            pvm.toProduct(camera.getProjectionMatrix(), camera.getViewMatrix());
+            commandList->setPushConstants(&pvm, sizeof(pvm));
 
             commandList->draw(nvrhi::DrawArguments().setVertexCount(6));
 

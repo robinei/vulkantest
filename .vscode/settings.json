@@ -89,7 +89,12 @@
         "codecvt": "cpp",
         "*.ipp": "cpp",
         "cassert": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "matrix": "cpp",
+        "plane": "cpp",
+        "mixinvector": "cpp",
+        "ref_ptr": "cpp",
+        "ranges": "cpp"
     },
     "files.exclude": {
         "**/*.o": true,
