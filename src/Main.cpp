@@ -22,8 +22,6 @@
 #include <nvrhi/utils.h>
 
 
-#include "Math/Mat4.h"
-#include "Math/Quat.h"
 #include "Camera.h"
 
 
@@ -105,16 +103,6 @@ static const Vertex modelVertices[] = {
     { {  1.f,  1.f, 0.f }, { 1.f, 0.f, 1.f, 1.f }, { 1.f, 0.f } },
 };
 
-
-
-
-static Vec3 cursor_pos;
-
-/*static Vec3 screen_to_world(int x, int y, int w, int h) {
-    Vec3 p0 = glm::unProject(Vec3(x, h - y - 1, 0), view_matrix, projection_matrix, glm::vec4(0, 0, w, h));
-    Vec3 p1 = glm::unProject(Vec3(x, h - y - 1, 1), view_matrix, projection_matrix, glm::vec4(0, 0, w, h));
-    return Plane::XY().ray_intersect(p0, p1);
-}*/
 
 
 int main(int argc, char* argv[]) {
@@ -314,8 +302,7 @@ int main(int argc, char* argv[]) {
                 .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(vertexBuffer));
             commandList->setGraphicsState(graphicsState);
 
-            Mat4 pvm;
-            pvm.toProduct(camera.getProjectionMatrix(), camera.getViewMatrix());
+            glm::mat4 pvm = camera.getProjectionMatrix() * camera.getViewMatrix();
             commandList->setPushConstants(&pvm, sizeof(pvm));
 
             commandList->draw(nvrhi::DrawArguments().setVertexCount(6));

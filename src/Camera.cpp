@@ -1,6 +1,12 @@
 #include "Camera.h"
-#include "Math/Quat.h"
 #include <SDL2/SDL.h>
+
+#include <glm/ext/quaternion_trigonometric.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/quaternion_float.hpp>
+#include <glm/trigonometric.hpp>
+
 
 bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
     switch (event->type) {
@@ -41,7 +47,7 @@ bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
         break;
     case SDL_MOUSEWHEEL:
         dist -= (dist * 0.4f * event->wheel.y);
-        dist = clamp(dist, 10.0f, 1000.0f);
+        dist = glm::clamp(dist, 10.0f, 1000.0f);
         return true;
     case SDL_MOUSEBUTTONDOWN:
         if (event->button.button == SDL_BUTTON_RIGHT && !rotating) {
@@ -62,25 +68,24 @@ bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
 }
 
 void TopDownCamera::update() {
-    Vec3 dir = Quat::fromAxisAngle(Vec3(0, 0, 1), yaw) * Vec3(1, 0, 0);
-    Vec3 forward = -dir;
-    Vec3 right = cross(dir, Vec3(0, 0, 1));
-    dir = Quat::fromAxisAngle(right, pitch) * dir;
-    //Vec3 up = cross(right, dir);
-    Vec3 pos = focus + dir * dist;
+    auto yaw_quat = angleAxis(glm::radians(yaw), glm::vec3(0, 0, 1));
+    glm::vec3 dir = yaw_quat * glm::vec3(1, 0, 0);
+    glm::vec3 forward = -dir;
+    glm::vec3 right = cross(dir, glm::vec3(0, 0, 1));
+    dir = angleAxis(glm::radians(pitch), right) * dir;
+    //glm::vec3 up = cross(right, dir);
+    glm::vec3 pos = focus + dir * dist;
     
     if (orthogonal) {
         float dim = dist*0.5f;
-        projectionMatrix.toOrtho(-dim*aspectRatio, dim*aspectRatio,
-                                    -dim, dim,
-                                    -10000.0f, 10000.0f);
+        projectionMatrix = glm::ortho(-dim*aspectRatio, dim*aspectRatio,
+                                      -dim, dim,
+                                      -10000.0f, 10000.0f);
     } else {
-        projectionMatrix.toPerspective(45.0f, aspectRatio, 0.1f, 10000.0f);
+        projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10000.0f);
     }
 
-    viewMatrix.toLookAt(pos,
-                        focus,
-                        Vec3(0, 0, 1));
+    viewMatrix = glm::lookAt(pos, focus, glm::vec3(0, 0, 1));
 
     const Uint8 *keys = SDL_GetKeyboardState(nullptr);
     int mx = 0, my = 0;
@@ -90,7 +95,7 @@ void TopDownCamera::update() {
         cursorPos = screen_to_world(mx, my, screenWidth, screenHeight);
     }*/
 
-    Vec3 motion(0, 0, 0);
+    glm::vec3 motion(0, 0, 0);
     if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A] || (mx == 0 && !rotating)) {
         motion += right;
     }
@@ -103,7 +108,7 @@ void TopDownCamera::update() {
     if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S] || (my == screenHeight - 1 && !rotating)) {
         motion -= forward;
     }
-    if (sqrLength(motion) > 0) {
+    if (length(motion) > 0) {
         motion = normalize(motion);
         focus += motion * sqrtf(dist) * 0.2f;
     }

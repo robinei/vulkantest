@@ -1,18 +1,19 @@
 #pragma once
 
-#include "Math/Mat4.h"
+#include <glm/vec3.hpp>
+#include <glm/mat4x4.hpp>
 
 class Camera {
 protected:
-    Mat4 projectionMatrix;
-    Mat4 viewMatrix;
+    glm::mat4 projectionMatrix;
+    glm::mat4 viewMatrix;
     float screenWidth;
     float screenHeight;
     float aspectRatio;
 
 public:
-    const Mat4 &getProjectionMatrix() const { return projectionMatrix; }
-    const Mat4 &getViewMatrix() const { return viewMatrix; }
+    const glm::mat4 &getProjectionMatrix() const { return projectionMatrix; }
+    const glm::mat4 &getViewMatrix() const { return viewMatrix; }
 
     void setScreenSize(int width, int height) {
         screenWidth = width;
@@ -25,7 +26,7 @@ public:
 };
 
 class TopDownCamera : public Camera {
-    Vec3 focus = Vec3::zero();
+    glm::vec3 focus = glm::vec3(0);
     float dist = 100;
     float pitch = 45;
     float yaw = 45;

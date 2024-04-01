@@ -14,7 +14,9 @@ FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
 C_SOURCES=$(call rwildcard,src,*.c)
 CXX_SOURCES=$(call rwildcard,src,*.cpp)
 
-CFLAGS=-c -I./src/deps/include -Wall -Wno-strict-aliasing -Wno-interference-size -g -O2
+#-DGLM_FORCE_LEFT_HANDED -DGLM_FORCE_DEPTH_ZERO_TO_ONE
+DEFINES=
+CFLAGS=-c -I./src/deps/include -Wall -Wno-strict-aliasing -Wno-interference-size -g -O2 $(DEFINES)
 CXXFLAGS=$(CFLAGS) -std=c++17
 LDFLAGS=-lSDL2 -lSDL2main -lvulkan -latomic
 
