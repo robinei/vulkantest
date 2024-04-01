@@ -21,7 +21,7 @@ bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
         if (rotating) {
             float a = -360.f * (float)event->motion.xrel / (float)screenWidth;
             do {
-                yaw += a;
+                yaw -= a;
             } while (fabsf(yaw) < 0.01f);
 
             a = 360.f * (float)event->motion.yrel / (float)screenHeight;
@@ -97,10 +97,10 @@ void TopDownCamera::update() {
 
     glm::vec3 motion(0, 0, 0);
     if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A] || (mx == 0 && !rotating)) {
-        motion += right;
+        motion -= right;
     }
     if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D] || (mx == screenWidth - 1 && !rotating)) {
-        motion -= right;
+        motion += right;
     }
     if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W] || (my == 0 && !rotating)) {
         motion += forward;

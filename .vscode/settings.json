@@ -2,6 +2,7 @@
     "files.exclude": {
         "**/*.o": true,
         "**/*.spv": true,
+        "**/*.exe": true,
         "vulkantest": true
     },
     "C_Cpp.autoAddFileAssociations": false
