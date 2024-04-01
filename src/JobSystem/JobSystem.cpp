@@ -42,7 +42,7 @@ public:
     int stealStart; // at which worker index to start stealing probe
     JobScope *activeScope;
     JobScope *threadScope;
-    std::atomic<int> bgQuotaUsed;
+    int isRunningBackgroundJob;
     char threadName[16];
 
 #if PRINT_STATS
@@ -122,9 +122,11 @@ public:
         if (--bgSemaphore >= 0) {
             Job bgJob;
             if (bgQueue.try_pop(bgJob)) {
-                ++bgQuotaUsed;
+                assert(isRunningBackgroundJob == 0);
+                ++isRunningBackgroundJob;
                 bgJob.run();
-                --bgQuotaUsed;
+                --isRunningBackgroundJob;
+                assert(isRunningBackgroundJob == 0);
                 ++bgSemaphore;
                 return true;
             }
@@ -225,18 +227,25 @@ JobScope *JobScope::getActiveScope() {
 
 void JobScope::dispatch() {
     assert(threadContext->queue);
-    // We're "blocking" this thread while possibly holding background-quota.
-    // Release any held quota for the duration, to avoid creating starvation scenarios
-    // (where this dispatch runs jobs that "dispatch-block" on further background jobs which never complete because the quota is exhausted).
+
+    // We'll be "blocking" this thread while possibly holding background-quota (maximum 1).
+    // Release the held quota (if any) for the duration, to avoid creating starvation scenarios
+    // (where this dispatch runs jobs that "dispatch-block" inside further background jobs which never complete because the quota is exhausted).
     // This can lead to the maximum background concurrency temporarily exceeding the regular limit, but that is fine.
-    int bgQuotaUsed = threadContext->bgQuotaUsed;
-    bgSemaphore += bgQuotaUsed;
+    int isBackground = threadContext->isRunningBackgroundJob;
+    assert(isBackground == 0 || isBackground == 1);
+    threadContext->isRunningBackgroundJob = 0;
+    bgSemaphore += isBackground; // release background quota (if holding it)
+
     while (pendingCount) {
         if (!threadContext->dispatchSingleJob()) {
             PAUSE();
         }
     }
-    bgSemaphore -= bgQuotaUsed;
+
+    assert(threadContext->isRunningBackgroundJob == 0);
+    threadContext->isRunningBackgroundJob = isBackground;
+    bgSemaphore -= isBackground; // retake released background quota (unconditionally, so semaphore may go below 0)
 }
 
 void Job::enqueueNormalJob(Job &job) {
