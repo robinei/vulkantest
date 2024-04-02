@@ -70,5 +70,5 @@ public:
     static void initialize(nvrhi::IDevice *dev);
     static void cleanup();
     static ShaderAssetHandle getShader(const std::string &path, nvrhi::ShaderType type);
-    static TextureAssetHandle getTexture(const std::string &path);
+    static TextureAssetHandle getTexture(const std::string &path, nvrhi::TextureDimension dimension = nvrhi::TextureDimension::Texture2D);
 };

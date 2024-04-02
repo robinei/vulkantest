@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
     SDL_AddEventWatch(EventWatcherCallback, deviceManager.get());
     deviceManager->createWindowDeviceAndSwapChain(params);
     nvrhi::IDevice *device = deviceManager->getDevice();
-    nvrhi::CommandListHandle commandList = device->createCommandList();
+    nvrhi::CommandListHandle commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     AssetLoader::initialize(device);
 
     nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
@@ -223,6 +223,7 @@ int main(int argc, char* argv[]) {
             .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture->get())), bindingLayout);
     }
+    AssetLoader::getTexture("assets/space_cubemap.jpg", nvrhi::TextureDimension::TextureCube);
 
     logger->debug("Initialized with errors: %s", SDL_GetError());
 

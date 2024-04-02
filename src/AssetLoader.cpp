@@ -113,7 +113,7 @@ static nvrhi::CommandListHandle getOrCreateCommandList() {
             commandList = commandLists.back();
             commandLists.pop_back();
         } else {
-            commandList = device->createCommandList();
+            commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
         }
     }
     commandList->open();
@@ -186,39 +186,56 @@ ShaderAssetHandle AssetLoader::getShader(const std::string &path, nvrhi::ShaderT
     });
 }
 
-TextureAssetHandle AssetLoader::getTexture(const std::string &path) {
-    return textureAssets.getOrCreateAsset(path, [] (const std::string &path, unsigned char *buffer, size_t size) {
+TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::TextureDimension dimension) {
+    assert(dimension == nvrhi::TextureDimension::Texture2D || dimension == nvrhi::TextureDimension::TextureCube);
+
+    return textureAssets.getOrCreateAsset(path, [dimension] (const std::string &path, unsigned char *buffer, size_t size) {
         int width, height, comp;
         int ok = stbi_info_from_memory(buffer, size, &width, &height, &comp);
         assert(ok);
 
-        int req_comp = 0;
+        int reqComp = 0;
         nvrhi::Format format;
         switch (comp) {
             case 1: format = nvrhi::Format::R8_UNORM; break;
             case 2: format = nvrhi::Format::RG8_UNORM; break;
             case 3:
-            case 4: format = nvrhi::Format::SRGBA8_UNORM; req_comp = 4; break;
+            case 4: format = nvrhi::Format::SRGBA8_UNORM; reqComp = 4; break;
             default: assert(false);
         }
 
-        stbi_uc *decodedBuf = stbi_load_from_memory(buffer, size, &width, &height, &comp, req_comp);
+        stbi_uc *decodedBuf = stbi_load_from_memory(buffer, size, &width, &height, &comp, reqComp);
         assert(decodedBuf);
 
         auto textureDesc = nvrhi::TextureDesc()
-            .setDimension(nvrhi::TextureDimension::Texture2D)
+            .setDimension(dimension)
             .setWidth(width)
             .setHeight(height)
             .setFormat(format)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
             .setKeepInitialState(true)
             .setDebugName(path);
+        if (dimension == nvrhi::TextureDimension::TextureCube) {
+            assert((height % (height / 6)) == 0);
+            height /= 6;
+            textureDesc.setArraySize(6);
+            textureDesc.setHeight(height);
+        }
         nvrhi::TextureHandle texture = device->createTexture(textureDesc);
         assert(texture);
-        logger->debug("Loaded texture %s (%d x %d x %d/%d)", path.c_str(), width, height, comp, req_comp);
+        logger->debug("Loaded texture %s (%d x %d x %d/%d)", path.c_str(), width, height, comp, reqComp);
 
+        size_t rowPitch = width*std::max(comp, reqComp);
         auto commandList = getOrCreateCommandList();
-        commandList->writeTexture(texture, /* arraySlice = */ 0, /* mipLevel = */ 0, decodedBuf, width*std::max(comp, req_comp));
+        if (dimension == nvrhi::TextureDimension::TextureCube) {
+            for (int i = 0; i < 6; ++i) {
+                commandList->writeTexture(texture, /* arraySlice = */ i, /* mipLevel = */ 0, decodedBuf + i*rowPitch*height, rowPitch);
+            }
+        } else {
+            commandList->writeTexture(texture, /* arraySlice = */ 0, /* mipLevel = */ 0, decodedBuf, rowPitch);
+        }
+        commandList->setPermanentTextureState(texture, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
         finishCommandList(commandList);
         free(decodedBuf);
 
