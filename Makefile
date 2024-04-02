@@ -1,36 +1,47 @@
 rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 
+#USE_GCC=1
 MAKE=make
-CC=ccache gcc
-CXX=ccache g++
-LD=g++ -fuse-ld=mold
 RM=rm -f
 GLSLC=glslc
-
-
-VERT_SOURCES=$(call rwildcard,shaders,*.vert)
-FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
-
-C_SOURCES=$(call rwildcard,src,*.c)
-CXX_SOURCES=$(call rwildcard,src,*.cpp)
-
-DEFINES=-DGLM_FORCE_LEFT_HANDED -DGLM_FORCE_DEPTH_ZERO_TO_ONE
-CFLAGS=-c -I./src/deps/include -Wall -Wno-strict-aliasing -Wno-interference-size -g -O2 $(DEFINES)
-CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS=-lSDL2 -lSDL2main -lvulkan -latomic
-
-
-SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
-OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
 EXECUTABLE=vulkantest
+DEFINES=-DGLM_FORCE_LEFT_HANDED -DGLM_FORCE_DEPTH_ZERO_TO_ONE -DGLM_FORCE_INTRINSICS
+WARNINGS=-Wall -Wno-strict-aliasing -Wno-unknown-pragmas
+
+ifdef USE_GCC
+	CC=ccache gcc
+	CXX=ccache g++
+	LD=g++ -fuse-ld=mold
+	WARNINGS+= -Wno-interference-size
+else
+	CC=ccache clang
+	CXX=ccache clang++
+	LD=clang++ -fuse-ld=mold
+	WARNINGS+= -Wno-unused-private-field
+endif
+
+CFLAGS=-c -g -O2 -I./src/deps/include $(DEFINES) $(WARNINGS)
+CXXFLAGS=$(CFLAGS) -std=c++17
+LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
+
 
 ifeq ($(OS),Windows_NT)
 	EXECUTABLE=$(EXECUTABLE).exe
 endif
 
+
+VERT_SOURCES=$(call rwildcard,shaders,*.vert)
+FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
+SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
+
+C_SOURCES=$(call rwildcard,src,*.c)
+CXX_SOURCES=$(call rwildcard,src,*.cpp)
+OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
+
+
 .PHONY: all
 all: rebuild
-	nice -20 ./$(EXECUTABLE)
+	./$(EXECUTABLE)
 
 .PHONY: rebuild
 rebuild: clean

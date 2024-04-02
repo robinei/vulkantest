@@ -24,7 +24,8 @@
 
 #include "Camera.h"
 
-
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat-security"
 class SdlLogger : public Logger {
     void logMessage(LogLevel level, const char *messageText) override {
         switch (level) {
@@ -46,6 +47,7 @@ class SdlLogger : public Logger {
         }
     }
 };
+#pragma clang diagnostic pop
 
 
 static SdlLogger sdlLogger;

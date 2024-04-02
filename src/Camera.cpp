@@ -68,13 +68,37 @@ bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
 }
 
 void TopDownCamera::update() {
-    auto yaw_quat = angleAxis(glm::radians(yaw), glm::vec3(0, 0, 1));
-    glm::vec3 dir = yaw_quat * glm::vec3(1, 0, 0);
+    glm::vec3 dir = angleAxis(glm::radians(yaw), glm::vec3(0, 0, 1)) * glm::vec3(1, 0, 0);
     glm::vec3 forward = -dir;
     glm::vec3 right = cross(dir, glm::vec3(0, 0, 1));
+
+    {
+        const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+        int mx = 0, my = 0;
+        SDL_GetMouseState(&mx, &my);
+
+        glm::vec3 motion(0, 0, 0);
+        if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A] || (mx == 0 && !rotating)) {
+            motion -= right;
+        }
+        if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D] || (mx == screenWidth - 1 && !rotating)) {
+            motion += right;
+        }
+        if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W] || (my == 0 && !rotating)) {
+            motion += forward;
+        }
+        if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S] || (my == screenHeight - 1 && !rotating)) {
+            motion -= forward;
+        }
+        if (length(motion) > 0) {
+            motion = normalize(motion);
+            focus += motion * sqrtf(dist) * 0.2f;
+        }
+    }
+
     dir = angleAxis(glm::radians(pitch), right) * dir;
-    //glm::vec3 up = cross(right, dir);
     glm::vec3 pos = focus + dir * dist;
+    viewMatrix = glm::lookAt(pos, focus, glm::vec3(0, 0, 1));
     
     if (orthogonal) {
         float dim = dist*0.5f;
@@ -83,33 +107,5 @@ void TopDownCamera::update() {
                                       -10000.0f, 10000.0f);
     } else {
         projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10000.0f);
-    }
-
-    viewMatrix = glm::lookAt(pos, focus, glm::vec3(0, 0, 1));
-
-    const Uint8 *keys = SDL_GetKeyboardState(nullptr);
-    int mx = 0, my = 0;
-    SDL_GetMouseState(&mx, &my);
-
-    /*if (!rotating) {
-        cursorPos = screen_to_world(mx, my, screenWidth, screenHeight);
-    }*/
-
-    glm::vec3 motion(0, 0, 0);
-    if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A] || (mx == 0 && !rotating)) {
-        motion -= right;
-    }
-    if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D] || (mx == screenWidth - 1 && !rotating)) {
-        motion += right;
-    }
-    if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W] || (my == 0 && !rotating)) {
-        motion += forward;
-    }
-    if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S] || (my == screenHeight - 1 && !rotating)) {
-        motion -= forward;
-    }
-    if (length(motion) > 0) {
-        motion = normalize(motion);
-        focus += motion * sqrtf(dist) * 0.2f;
     }
 }
