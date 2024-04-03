@@ -18,7 +18,7 @@
 
 #include "DeviceManager.h"
 #include "AssetLoader.h"
-#include "JobSystem/JobSystem.h"
+#include "JobSystem.h"
 #include <nvrhi/utils.h>
 
 

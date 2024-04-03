@@ -20,7 +20,7 @@ else
 	WARNINGS+= -Wno-unused-private-field
 endif
 
-CFLAGS=-c -g -O2 -I./src/deps/include $(DEFINES) $(WARNINGS)
+CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
 CXXFLAGS=$(CFLAGS) -std=c++17
 LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
 
@@ -34,8 +34,8 @@ VERT_SOURCES=$(call rwildcard,assets/shaders,*.vert)
 FRAG_SOURCES=$(call rwildcard,assets/shaders,*.frag)
 SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
 
-C_SOURCES=$(call rwildcard,src,*.c)
-CXX_SOURCES=$(call rwildcard,src,*.cpp)
+C_SOURCES=$(call rwildcard,src,*.c) $(call rwildcard,3rdparty/sources,*.c)
+CXX_SOURCES=$(call rwildcard,src,*.cpp) $(call rwildcard,3rdparty/sources,*.cpp)
 OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
 
 

@@ -3,7 +3,7 @@
 #include <nvrhi/nvrhi.h>
 #include <mutex>
 #include "Logger.h"
-#include "JobSystem/JobSystem.h"
+#include "JobSystem.h"
 
 class IAsset {
     template <typename U>
