@@ -26,6 +26,7 @@ public:
 };
 
 class TopDownCamera : public Camera {
+    glm::mat4 perspectiveMatrix;
     glm::vec3 focus = glm::vec3(0);
     float dist = 100;
     float pitch = 45;
@@ -34,6 +35,7 @@ class TopDownCamera : public Camera {
     bool orthogonal = false;
 
 public:
+    const glm::mat4 &getPerspectiveMatrix() const { return perspectiveMatrix; }
     virtual bool handleSDLEvent(union SDL_Event *event) override;
     virtual void update() override;
 };

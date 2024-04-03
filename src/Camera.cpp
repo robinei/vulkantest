@@ -100,12 +100,13 @@ void TopDownCamera::update() {
     glm::vec3 pos = focus + dir * dist;
     viewMatrix = glm::lookAt(pos, focus, glm::vec3(0, 0, 1));
     
+    perspectiveMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10000.0f);
     if (orthogonal) {
         float dim = dist*0.5f;
         projectionMatrix = glm::ortho(-dim*aspectRatio, dim*aspectRatio,
                                       -dim, dim,
                                       -10000.0f, 10000.0f);
     } else {
-        projectionMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10000.0f);
+        projectionMatrix = perspectiveMatrix;
     }
 }

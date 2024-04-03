@@ -94,7 +94,6 @@ struct Vertex {
     float color[4];
     float texCoord[2];
 };
-
 static const Vertex modelVertices[] = {
     { { -1.f, -1.f, 0.f }, { 1.f, 0.f, 0.f, 1.f }, { 0.f, 1.f } },
     { { -1.f,  1.f, 0.f }, { 0.f, 1.f, 0.f, 1.f }, { 0.f, 0.f } },
@@ -103,6 +102,35 @@ static const Vertex modelVertices[] = {
     { {  1.f, -1.f, 0.f }, { 0.f, 0.f, 1.f, 1.f }, { 1.f, 1.f } },
     { { -1.f, -1.f, 0.f }, { 1.f, 0.f, 0.f, 1.f }, { 0.f, 1.f } },
     { {  1.f,  1.f, 0.f }, { 1.f, 0.f, 1.f, 1.f }, { 1.f, 0.f } },
+};
+
+
+struct SkyboxVertex {
+    float position[3];
+};
+static const SkyboxVertex skyboxVertices[] = {
+    { -1.0f,  1.0f, -1.0f },
+    {  1.0f,  1.0f, -1.0f },
+    { -1.0f, -1.0f, -1.0f },
+    {  1.0f, -1.0f, -1.0f },
+    { -1.0f,  1.0f,  1.0f },
+    {  1.0f,  1.0f,  1.0f },
+    { -1.0f, -1.0f,  1.0f },
+    {  1.0f, -1.0f,  1.0f },
+};
+static unsigned short skyboxIndices[] = {
+    0, 1, 2,    // side 1
+    2, 1, 3,
+    4, 0, 6,    // side 2
+    6, 0, 2,
+    7, 5, 6,    // side 3
+    6, 5, 4,
+    3, 1, 7,    // side 4
+    7, 1, 5,
+    4, 5, 0,    // side 5
+    0, 5, 1,
+    3, 7, 2,    // side 6
+    2, 7, 6,
 };
 
 
@@ -148,14 +176,8 @@ int main(int argc, char* argv[]) {
     nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     AssetLoader::initialize(device);
-
-    nvrhi::BufferHandle vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
-        .setByteSize(sizeof(modelVertices))
-        .setIsVertexBuffer(true)
-        .setInitialState(nvrhi::ResourceStates::VertexBuffer)
-        .setKeepInitialState(true) // enable fully automatic state tracking
-        .setDebugName("Vertex Buffer"));
     
+    nvrhi::BufferHandle vertexBuffer;
     nvrhi::GraphicsPipelineHandle graphicsPipeline;
     nvrhi::BindingSetHandle bindingSet;
     {
@@ -171,6 +193,12 @@ int main(int argc, char* argv[]) {
         uint64_t end = SDL_GetTicks64();
         logger->info("Assets loaded in %d ms", end-start);
 
+        vertexBuffer = device->createBuffer(nvrhi::BufferDesc()
+            .setByteSize(sizeof(modelVertices))
+            .setIsVertexBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+            .setKeepInitialState(true) // enable fully automatic state tracking
+            .setDebugName("Vertex Buffer"));
         commandList->open();
         commandList->writeBuffer(vertexBuffer, modelVertices, sizeof(modelVertices));
         commandList->close();
@@ -223,7 +251,74 @@ int main(int argc, char* argv[]) {
             .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(1, texture->get())), bindingLayout);
     }
-    AssetLoader::getTexture("assets/space_cubemap.jpg", nvrhi::TextureDimension::TextureCube);
+
+    nvrhi::BufferHandle skyboxVertexBuffer;
+    nvrhi::BufferHandle skyboxIndexBuffer;
+    nvrhi::GraphicsPipelineHandle skyboxPipeline;
+    nvrhi::BindingSetHandle skyboxBindings;
+    {
+        JobScope scope;
+        auto vertShader = AssetLoader::getShader("shaders/skybox.vert.spv", nvrhi::ShaderType::Vertex);
+        auto fragShader = AssetLoader::getShader("shaders/skybox.frag.spv", nvrhi::ShaderType::Pixel);
+        auto cubemap = AssetLoader::getTexture("assets/space_cubemap.jpg", nvrhi::TextureDimension::TextureCube);
+        scope.dispatch();
+
+        skyboxVertexBuffer = device->createBuffer(nvrhi::BufferDesc()
+            .setByteSize(sizeof(skyboxVertices))
+            .setIsVertexBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+            .setKeepInitialState(true) // enable fully automatic state tracking
+            .setDebugName("Vertex Buffer"));
+        skyboxIndexBuffer = device->createBuffer(nvrhi::BufferDesc()
+            .setByteSize(sizeof(skyboxIndices))
+            .setIsIndexBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::IndexBuffer)
+            .setKeepInitialState(true) // enable fully automatic state tracking
+            .setDebugName("Index Buffer"));
+        commandList->open();
+        commandList->writeBuffer(skyboxVertexBuffer, skyboxVertices, sizeof(skyboxVertices));
+        commandList->writeBuffer(skyboxIndexBuffer, skyboxIndices, sizeof(skyboxIndices));
+        commandList->close();
+        device->executeCommandList(commandList);
+
+        auto layoutDesc = nvrhi::BindingLayoutDesc()
+            .setVisibility(nvrhi::ShaderType::All)
+            .addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(float)*16))
+            .addItem(nvrhi::BindingLayoutItem::Sampler(0))
+            .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
+        layoutDesc.bindingOffsets.setSamplerOffset(0);
+        nvrhi::BindingLayoutHandle bindingLayout = device->createBindingLayout(layoutDesc);
+
+        nvrhi::VertexAttributeDesc attributes[] = {
+            nvrhi::VertexAttributeDesc()
+                .setName("POSITION")
+                .setFormat(nvrhi::Format::RGB32_FLOAT)
+                .setOffset(offsetof(SkyboxVertex, position))
+                .setElementStride(sizeof(SkyboxVertex)),
+        };
+        nvrhi::InputLayoutHandle inputLayout = device->createInputLayout(attributes, 1, vertShader->get());
+
+        auto pipelineDesc = nvrhi::GraphicsPipelineDesc()
+            .setInputLayout(inputLayout)
+            .setVertexShader(vertShader->get())
+            .setPixelShader(fragShader->get())
+            .addBindingLayout(bindingLayout);
+        pipelineDesc.renderState.rasterState.setCullNone();
+        pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
+        pipelineDesc.renderState.depthStencilState.setDepthWriteEnable(false);
+        skyboxPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->getCurrentFramebuffer());
+
+        auto samplerDesc = nvrhi::SamplerDesc()
+            .setAllFilters(true)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+        samplerDesc.setAllFilters(true);
+        auto linearClampSampler = device->createSampler(samplerDesc);
+
+        skyboxBindings = device->createBindingSet(nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(1, cubemap->get())), bindingLayout);
+    }
 
     logger->debug("Initialized with errors: %s", SDL_GetError());
 
@@ -297,18 +392,36 @@ int main(int argc, char* argv[]) {
             nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(0.f));
             nvrhi::utils::ClearDepthStencilAttachment(commandList, framebuffer, 1.f, 0);
 
-            auto graphicsState = nvrhi::GraphicsState()
-                .setPipeline(graphicsPipeline)
-                .setFramebuffer(framebuffer)
-                .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight())))
-                .addBindingSet(bindingSet)
-                .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(vertexBuffer));
-            commandList->setGraphicsState(graphicsState);
+            {
+                auto graphicsState = nvrhi::GraphicsState()
+                    .setPipeline(skyboxPipeline)
+                    .setFramebuffer(framebuffer)
+                    .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight())))
+                    .addBindingSet(skyboxBindings)
+                    .setIndexBuffer(nvrhi::IndexBufferBinding().setFormat(nvrhi::Format::R16_UINT).setBuffer(skyboxIndexBuffer))
+                    .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(skyboxVertexBuffer));
+                commandList->setGraphicsState(graphicsState);
+                glm::mat4 vm = camera.getViewMatrix();
+                vm[3].x = 0;
+                vm[3].y = 0;
+                vm[3].z = 0;
+                glm::mat4 pvm = camera.getPerspectiveMatrix() * vm;
+                commandList->setPushConstants(&pvm, sizeof(pvm));
+                commandList->drawIndexed(nvrhi::DrawArguments().setVertexCount(36));
+            }
 
-            glm::mat4 pvm = camera.getProjectionMatrix() * camera.getViewMatrix();
-            commandList->setPushConstants(&pvm, sizeof(pvm));
-
-            commandList->draw(nvrhi::DrawArguments().setVertexCount(6));
+            {
+                auto graphicsState = nvrhi::GraphicsState()
+                    .setPipeline(graphicsPipeline)
+                    .setFramebuffer(framebuffer)
+                    .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight())))
+                    .addBindingSet(bindingSet)
+                    .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(vertexBuffer));
+                commandList->setGraphicsState(graphicsState);
+                glm::mat4 pvm = camera.getProjectionMatrix() * camera.getViewMatrix();
+                commandList->setPushConstants(&pvm, sizeof(pvm));
+                commandList->draw(nvrhi::DrawArguments().setVertexCount(6));
+            }
 
             commandList->close();
             device->executeCommandList(commandList);
@@ -326,6 +439,10 @@ int main(int argc, char* argv[]) {
     bindingSet = nullptr;
     vertexBuffer = nullptr;
     graphicsPipeline = nullptr;
+    skyboxBindings = nullptr;
+    skyboxVertexBuffer = nullptr;
+    skyboxIndexBuffer = nullptr;
+    skyboxPipeline = nullptr;
     commandList = nullptr;
     deviceManager = nullptr;
 
