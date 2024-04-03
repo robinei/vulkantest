@@ -4,7 +4,6 @@ rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 MAKE=make
 RM=rm -f
 GLSLC=glslc
-EXECUTABLE=vulkantest
 DEFINES=-DGLM_FORCE_LEFT_HANDED -DGLM_FORCE_DEPTH_ZERO_TO_ONE -DGLM_FORCE_INTRINSICS
 WARNINGS=-Wall -Wno-strict-aliasing -Wno-unknown-pragmas
 
@@ -20,53 +19,70 @@ else
 	WARNINGS+= -Wno-unused-private-field
 endif
 
+EXE:=
+ifeq ($(OS),Windows_NT)
+	EXE:=.exe
+endif
+
 CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
 CXXFLAGS=$(CFLAGS) -std=c++17
 LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
 
 
-ifeq ($(OS),Windows_NT)
-	EXECUTABLE=$(EXECUTABLE).exe
-endif
+GAME_TARGET=vulkantest$(EXE)
+DEPS_TARGET=3rdparty/3rdparty.a
 
+GAME_C_SOURCES=$(call rwildcard,src,*.c)
+GAME_CXX_SOURCES=$(call rwildcard,src,*.cpp)
+GAME_OBJECTS=$(GAME_C_SOURCES:.c=.o) $(GAME_CXX_SOURCES:.cpp=.o)
 
-VERT_SOURCES=$(call rwildcard,assets/shaders,*.vert)
-FRAG_SOURCES=$(call rwildcard,assets/shaders,*.frag)
-SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
+DEPS_C_SOURCES=$(call rwildcard,3rdparty/sources,*.c)
+DEPS_CXX_SOURCES=$(call rwildcard,3rdparty/sources,*.cpp)
+DEPS_OBJECTS=$(DEPS_C_SOURCES:.c=.o) $(DEPS_CXX_SOURCES:.cpp=.o)
 
-C_SOURCES=$(call rwildcard,src,*.c) $(call rwildcard,3rdparty/sources,*.c)
-CXX_SOURCES=$(call rwildcard,src,*.cpp) $(call rwildcard,3rdparty/sources,*.cpp)
-OBJECTS=$(C_SOURCES:.c=.o) $(CXX_SOURCES:.cpp=.o)
-
+ASSET_VERT_SOURCES=$(call rwildcard,assets/shaders,*.vert)
+ASSET_FRAG_SOURCES=$(call rwildcard,assets/shaders,*.frag)
+ASSET_SHADERS=$(ASSET_VERT_SOURCES:.vert=.vert.spv) $(ASSET_FRAG_SOURCES:.frag=.frag.spv)
 
 .PHONY: all
 all: rebuild
-	./$(EXECUTABLE)
+	./$(GAME_TARGET)
 
 .PHONY: rebuild
 rebuild: clean
 	$(MAKE) build
 
 .PHONY: build
-build: $(EXECUTABLE) $(SPVFILES)
+build: $(GAME_TARGET) $(ASSET_SHADERS)
 
 .PHONY: clean
 clean:
-	find -name '*.o' | xargs $(RM)
-	find -name '*.spv' | xargs $(RM)
-	$(RM) $(EXECUTABLE)
+	@echo "Cleaning"
+	@find -name '*.o' | xargs $(RM)
+	@find -name '*.spv' | xargs $(RM)
+	@$(RM) $(GAME_TARGET)
+	@$(RM) $(DEPS_TARGET)
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+	@echo "Compiling $@"
+	@$(CXX) $(CXXFLAGS) -o $@ $<
 
 %.o: %.c
-	$(CC) $(CFLAGS) -o $@ $<
+	@echo "Compiling $@"
+	@$(CC) $(CFLAGS) -o $@ $<
 
-$(EXECUTABLE): $(OBJECTS)
-	$(LD) $(OBJECTS) -o $@ $(LDFLAGS)
+$(GAME_TARGET): $(GAME_OBJECTS) $(DEPS_TARGET)
+	@echo "Linking $@"
+	@$(LD) $^ -o $@ $(LDFLAGS)
+
+$(DEPS_TARGET): $(DEPS_OBJECTS)
+	@echo "Archiving $@"
+	@ar rcs $@ $^
 
 %.vert.spv: %.vert
-	$(GLSLC) $< -o $@
+	@echo "Compiling $@"
+	@$(GLSLC) $< -o $@
 
 %.frag.spv: %.frag
-	$(GLSLC) $< -o $@
+	@echo "Compiling $@"
+	@$(GLSLC) $< -o $@
