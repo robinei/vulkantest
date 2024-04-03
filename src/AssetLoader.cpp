@@ -102,7 +102,8 @@ public:
 
 
 static AssetMap<nvrhi::ShaderHandle> shaderAssets;
-static AssetMap<nvrhi::TextureHandle> textureAssets;
+static AssetMap<nvrhi::TextureHandle> texture2DAssets;
+static AssetMap<nvrhi::TextureHandle> textureCubeAssets;
 
 
 static nvrhi::CommandListHandle getOrCreateCommandList() {
@@ -174,22 +175,30 @@ void AssetLoader::cleanup() {
     assert(readRequestQueue.empty());
     readerThreads.clear();
     shaderAssets.clear();
-    textureAssets.clear();
+    texture2DAssets.clear();
+    textureCubeAssets.clear();
     std::lock_guard<std::mutex> lock(commandListsMutex);
     commandLists.clear();
     device = nullptr;
 }
 
 ShaderAssetHandle AssetLoader::getShader(const std::string &path, nvrhi::ShaderType type) {
-    return shaderAssets.getOrCreateAsset(path, [type] (const std::string &path, unsigned char *buffer, size_t size) {
+    std::string realPath("assets/shaders/");
+    realPath.append(path);
+    return shaderAssets.getOrCreateAsset(realPath, [type] (const std::string &path, unsigned char *buffer, size_t size) {
         return device->createShader(nvrhi::ShaderDesc(type), buffer, size);
     });
 }
 
 TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::TextureDimension dimension) {
     assert(dimension == nvrhi::TextureDimension::Texture2D || dimension == nvrhi::TextureDimension::TextureCube);
+    std::string realPath("assets/textures/");
+    realPath.append(path);
 
-    return textureAssets.getOrCreateAsset(path, [dimension] (const std::string &path, unsigned char *buffer, size_t size) {
+    auto &assets =
+        dimension == nvrhi::TextureDimension::Texture2D ? texture2DAssets : textureCubeAssets;
+
+    return assets.getOrCreateAsset(realPath, [dimension] (const std::string &path, unsigned char *buffer, size_t size) {
         int width, height, comp;
         int ok = stbi_info_from_memory(buffer, size, &width, &height, &comp);
         assert(ok);

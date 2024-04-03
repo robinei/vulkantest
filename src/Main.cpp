@@ -183,9 +183,9 @@ int main(int argc, char* argv[]) {
     {
         uint64_t start = SDL_GetTicks64();
         JobScope scope;
-        auto vertShader = AssetLoader::getShader("shaders/trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
-        auto fragShader = AssetLoader::getShader("shaders/trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
-        auto texture = AssetLoader::getTexture("assets/skyboxes/default_right1.jpg");
+        auto vertShader = AssetLoader::getShader("trivial_tex.vert.spv", nvrhi::ShaderType::Vertex);
+        auto fragShader = AssetLoader::getShader("trivial_tex.frag.spv", nvrhi::ShaderType::Pixel);
+        auto texture = AssetLoader::getTexture("space_cubemap.jpg");
         scope.dispatch();
         assert(vertShader->isLoaded());
         assert(fragShader->isLoaded());
@@ -258,9 +258,9 @@ int main(int argc, char* argv[]) {
     nvrhi::BindingSetHandle skyboxBindings;
     {
         JobScope scope;
-        auto vertShader = AssetLoader::getShader("shaders/skybox.vert.spv", nvrhi::ShaderType::Vertex);
-        auto fragShader = AssetLoader::getShader("shaders/skybox.frag.spv", nvrhi::ShaderType::Pixel);
-        auto cubemap = AssetLoader::getTexture("assets/space_cubemap.jpg", nvrhi::TextureDimension::TextureCube);
+        auto vertShader = AssetLoader::getShader("skybox.vert.spv", nvrhi::ShaderType::Vertex);
+        auto fragShader = AssetLoader::getShader("skybox.frag.spv", nvrhi::ShaderType::Pixel);
+        auto cubemap = AssetLoader::getTexture("space_cubemap.jpg", nvrhi::TextureDimension::TextureCube);
         scope.dispatch();
 
         skyboxVertexBuffer = device->createBuffer(nvrhi::BufferDesc()

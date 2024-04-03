@@ -30,8 +30,8 @@ ifeq ($(OS),Windows_NT)
 endif
 
 
-VERT_SOURCES=$(call rwildcard,shaders,*.vert)
-FRAG_SOURCES=$(call rwildcard,shaders,*.frag)
+VERT_SOURCES=$(call rwildcard,assets/shaders,*.vert)
+FRAG_SOURCES=$(call rwildcard,assets/shaders,*.frag)
 SPVFILES=$(VERT_SOURCES:.vert=.vert.spv) $(FRAG_SOURCES:.frag=.frag.spv)
 
 C_SOURCES=$(call rwildcard,src,*.c)
