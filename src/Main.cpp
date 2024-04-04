@@ -89,6 +89,24 @@ struct Counter {
     __attribute__((noinline)) Counter& operator=(Counter&& other) noexcept { ++massignCount; return *this; }
 };
 
+
+struct LineVertex {
+    glm::vec3 position;
+    glm::vec4 color;
+};
+#define MAX_LINE_VERTS 4096
+static LineVertex lineVerts[MAX_LINE_VERTS];
+static int numLineVerts;
+static void emitLine(const glm::vec3 &a, const glm::vec3 &b, const glm::vec4 &color) {
+    LineVertex *v = lineVerts + numLineVerts;
+    v[0].position = a;
+    v[0].color = color;
+    v[1].position = b;
+    v[1].color = color;
+    numLineVerts += 2;
+}
+
+
 struct Vertex {
     float position[3];
     float color[4];
@@ -176,6 +194,54 @@ int main(int argc, char* argv[]) {
     nvrhi::IDevice *device = deviceManager->getDevice();
     nvrhi::CommandListHandle commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     AssetLoader::initialize(device);
+    
+    nvrhi::BufferHandle lineVertexBuffer;
+    nvrhi::GraphicsPipelineHandle lineGraphicsPipeline;
+    nvrhi::BindingSetHandle lineBindingSet;
+    {
+        JobScope scope;
+        auto vertShader = AssetLoader::getShader("trivial_color.vert.spv", nvrhi::ShaderType::Vertex);
+        auto fragShader = AssetLoader::getShader("trivial_color.frag.spv", nvrhi::ShaderType::Pixel);
+        scope.dispatch();
+
+        lineVertexBuffer = device->createBuffer(nvrhi::BufferDesc()
+            .setByteSize(sizeof(lineVerts))
+            .setIsVertexBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+            .setKeepInitialState(true));
+
+        auto layoutDesc = nvrhi::BindingLayoutDesc()
+            .setVisibility(nvrhi::ShaderType::All)
+            .addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(float)*16));
+        nvrhi::BindingLayoutHandle bindingLayout = device->createBindingLayout(layoutDesc);
+
+        nvrhi::VertexAttributeDesc attributes[] = {
+            nvrhi::VertexAttributeDesc()
+                .setName("POSITION")
+                .setFormat(nvrhi::Format::RGB32_FLOAT)
+                .setOffset(offsetof(LineVertex, position))
+                .setElementStride(sizeof(LineVertex)),
+            nvrhi::VertexAttributeDesc()
+                .setName("COLOR")
+                .setFormat(nvrhi::Format::RGBA32_FLOAT)
+                .setOffset(offsetof(LineVertex, color))
+                .setElementStride(sizeof(LineVertex)),
+        };
+        nvrhi::InputLayoutHandle inputLayout = device->createInputLayout(attributes, 2, vertShader->get());
+
+        auto pipelineDesc = nvrhi::GraphicsPipelineDesc()
+            .setPrimType(nvrhi::PrimitiveType::LineList)
+            .setInputLayout(inputLayout)
+            .setVertexShader(vertShader->get())
+            .setPixelShader(fragShader->get())
+            .addBindingLayout(bindingLayout);
+        pipelineDesc.renderState.rasterState.setCullNone();
+        pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
+        lineGraphicsPipeline = device->createGraphicsPipeline(pipelineDesc, deviceManager->getCurrentFramebuffer());
+        
+        lineBindingSet = device->createBindingSet(nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16)), bindingLayout);
+    }
     
     nvrhi::BufferHandle vertexBuffer;
     nvrhi::GraphicsPipelineHandle graphicsPipeline;
@@ -388,6 +454,11 @@ int main(int argc, char* argv[]) {
         if (deviceManager->beginFrame()) {
             nvrhi::IFramebuffer *framebuffer = deviceManager->getCurrentFramebuffer();
 
+            numLineVerts = 0;
+            emitLine(glm::vec3(0), glm::vec3(10, 0, 0), glm::vec4(1, 0, 0, 1));
+            emitLine(glm::vec3(0), glm::vec3(0, 10, 0), glm::vec4(0, 1, 0, 1));
+            emitLine(glm::vec3(0), glm::vec3(0, 0, 10), glm::vec4(0, 0, 1, 1));
+
             commandList->open();
             nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(0.f));
             nvrhi::utils::ClearDepthStencilAttachment(commandList, framebuffer, 1.f, 0);
@@ -423,6 +494,20 @@ int main(int argc, char* argv[]) {
                 commandList->draw(nvrhi::DrawArguments().setVertexCount(6));
             }
 
+            {
+                commandList->writeBuffer(lineVertexBuffer, lineVerts, sizeof(LineVertex)*numLineVerts);
+                auto graphicsState = nvrhi::GraphicsState()
+                    .setPipeline(lineGraphicsPipeline)
+                    .setFramebuffer(framebuffer)
+                    .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight())))
+                    .addBindingSet(lineBindingSet)
+                    .addVertexBuffer(nvrhi::VertexBufferBinding().setSlot(0).setOffset(0).setBuffer(lineVertexBuffer));
+                commandList->setGraphicsState(graphicsState);
+                glm::mat4 pvm = camera.getProjectionMatrix() * camera.getViewMatrix();
+                commandList->setPushConstants(&pvm, sizeof(pvm));
+                commandList->draw(nvrhi::DrawArguments().setVertexCount(numLineVerts));
+            }
+
             commandList->close();
             device->executeCommandList(commandList);
 
@@ -436,6 +521,9 @@ int main(int argc, char* argv[]) {
     AssetLoader::cleanup();
 
     device->waitForIdle();
+    lineBindingSet = nullptr;
+    lineVertexBuffer = nullptr;
+    lineGraphicsPipeline = nullptr;
     bindingSet = nullptr;
     vertexBuffer = nullptr;
     graphicsPipeline = nullptr;

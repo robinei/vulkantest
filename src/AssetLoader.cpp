@@ -224,7 +224,7 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
             .setKeepInitialState(true)
             .setDebugName(path);
         if (dimension == nvrhi::TextureDimension::TextureCube) {
-            assert((height % (height / 6)) == 0);
+            assert(width == height / 6);
             height /= 6;
             textureDesc.setArraySize(6);
             textureDesc.setHeight(height);

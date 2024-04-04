@@ -68,9 +68,10 @@ bool TopDownCamera::handleSDLEvent(union SDL_Event *event) {
 }
 
 void TopDownCamera::update() {
-    glm::vec3 dir = angleAxis(glm::radians(yaw), glm::vec3(0, 0, 1)) * glm::vec3(1, 0, 0);
+    glm::vec3 coordUp = glm::vec3(0, 1, 0);
+    glm::vec3 dir = -(angleAxis(glm::radians(yaw), coordUp) * glm::vec3(1, 0, 0));
     glm::vec3 forward = -dir;
-    glm::vec3 right = cross(dir, glm::vec3(0, 0, 1));
+    glm::vec3 right = cross(dir, coordUp);
 
     {
         const Uint8 *keys = SDL_GetKeyboardState(nullptr);
@@ -98,7 +99,7 @@ void TopDownCamera::update() {
 
     dir = angleAxis(glm::radians(pitch), right) * dir;
     glm::vec3 pos = focus + dir * dist;
-    viewMatrix = glm::lookAt(pos, focus, glm::vec3(0, 0, 1));
+    viewMatrix = glm::lookAt(pos, focus, coordUp);
     
     perspectiveMatrix = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 10000.0f);
     if (orthogonal) {
