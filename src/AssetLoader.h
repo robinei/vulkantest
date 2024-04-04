@@ -4,10 +4,18 @@
 #include <mutex>
 #include "Logger.h"
 #include "JobSystem.h"
+#include "RefCounted.h"
 
-class IAsset {
+template <typename T>
+class Asset : public RefCounted {
     template <typename U>
     friend class AssetMap;
+    
+    std::string path;
+    std::mutex mutex;
+    std::atomic<bool> loaded;
+    std::vector<JobScope *> waitingScopes;
+    T asset;
 
     void addWaitingScope(JobScope *scope) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -16,29 +24,6 @@ class IAsset {
             waitingScopes.push_back(scope);
         }
     }
-
-protected:
-    std::string path;
-    std::mutex mutex;
-    std::atomic<bool> loaded;
-    std::vector<JobScope *> waitingScopes;
-
-public:
-    IAsset() : loaded(false) { }
-    virtual ~IAsset() { logger->debug("Destroying asset: %s", path.c_str()); }
-    virtual unsigned long AddRef() = 0;
-    virtual unsigned long Release() = 0;
-
-    const std::string &getPath() const { return path; }
-    bool isLoaded() const { return loaded; }
-};
-
-template <typename T>
-class Asset : public nvrhi::RefCounter<IAsset> {
-    template <typename U>
-    friend class AssetMap;
-    
-    T asset;
 
     void setLoadedAsset(T &&asset) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -56,14 +41,20 @@ class Asset : public nvrhi::RefCounter<IAsset> {
     }
 
 public:
+    ~Asset() { logger->debug("Destroying asset: %s", path.c_str()); }
+
+    const std::string &getPath() const { return path; }
+
+    bool isLoaded() const { return loaded; }
+
     const T &get() const {
         assert(loaded);
         return asset;
     }
 };
 
-typedef nvrhi::RefCountPtr<Asset<nvrhi::ShaderHandle>> ShaderAssetHandle;
-typedef nvrhi::RefCountPtr<Asset<nvrhi::TextureHandle>> TextureAssetHandle;
+typedef Ref<Asset<nvrhi::ShaderHandle>> ShaderAssetHandle;
+typedef Ref<Asset<nvrhi::TextureHandle>> TextureAssetHandle;
 
 class AssetLoader {
 public:

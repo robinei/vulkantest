@@ -65,24 +65,24 @@ static std::vector<std::thread> readerThreads;
 template<typename T>
 class AssetMap {
     std::mutex mutex;
-    std::unordered_map<std::string, nvrhi::RefCountPtr<Asset<T>>> map;
+    std::unordered_map<std::string, Ref<Asset<T>>> map;
 
 public:
     template <typename Handler>
-    nvrhi::RefCountPtr<Asset<T>> getOrCreateAsset(const std::string &path, Handler &&handler) {
-        nvrhi::RefCountPtr<Asset<T>> asset;
+    Ref<Asset<T>> getOrCreateAsset(const std::string &path, Handler &&handler) {
+        Ref<Asset<T>> asset;
         std::lock_guard<std::mutex> lock(mutex);
         auto it = map.find(path);
         if (it != map.end()) {
-            asset = it->second.Get();
+            asset = it->second;
         } else {
             asset = new Asset<T>(path);
             map.insert({path, asset});
-            asset->Release(); // ref count starts at 1, so Release after we are storing a reference
+            asset->release(); // ref count starts at 1, so release after we are storing a reference
             ReadRequest request;
             request.path = path;
-            request.handler = [asset, handler = std::move(handler)] (unsigned char *buffer, size_t size) {
-                Job::enqueue([asset, buffer, size, handler = std::move(handler)] {
+            request.handler = [asset, handler = std::move(handler)] (unsigned char *buffer, size_t size) mutable {
+                Job::enqueue([asset, buffer, size, handler = std::move(handler)] () mutable {
                     asset->setLoadedAsset(std::move(handler(asset->getPath(), buffer, size)));
                     free(buffer);
                 }, JobType::BACKGROUND);

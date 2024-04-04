@@ -394,7 +394,7 @@ int main(int argc, char* argv[]) {
     {
         JobScope scope;
         for (int i = 0; i < 1000; ++i) {
-            Job::enqueue([&counter, &scope, counterObject] {
+            Job::enqueue([&counter, &scope, counterObject = std::move(counterObject)] {
                 JobScope scope2(scope);
                 for (int j = 0; j < 1000; ++j) {
                     Job::enqueue([&counter] {
