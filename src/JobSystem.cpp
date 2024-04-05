@@ -19,21 +19,14 @@
 #define INC_STAT(stat)
 #endif
 
-// max number of concurrent background jobs
-#define DEFAULT_BACKGROUND_CONCURRENCY 2
-
 
 typedef WorkStealingQueue<Job> JobQueue;
-typedef rigtorp::MPMCQueue<Job> BGQueue;
 
 static std::atomic<bool> workersShouldStop;
 static int workerCount;
 static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
-static BGQueue bgQueue(65536);
-static std::atomic<int> bgSemaphore(DEFAULT_BACKGROUND_CONCURRENCY);
-static JobScope rootScope((ThreadContext *)nullptr);
 
 
 class ThreadContext {
@@ -42,7 +35,6 @@ public:
     int stealStart; // at which worker index to start stealing probe
     JobScope *activeScope;
     JobScope *threadScope;
-    int isRunningBackgroundJob;
     char threadName[16];
 
 #if PRINT_STATS
@@ -117,21 +109,7 @@ public:
                 }
             }
         }
-    
-        // check if we should do a background job
-        if (--bgSemaphore >= 0) {
-            Job bgJob;
-            if (bgQueue.try_pop(bgJob)) {
-                assert(isRunningBackgroundJob == 0);
-                ++isRunningBackgroundJob;
-                bgJob.run();
-                --isRunningBackgroundJob;
-                assert(isRunningBackgroundJob == 0);
-                ++bgSemaphore;
-                return true;
-            }
-        }
-        ++bgSemaphore;
+
         return false;
     }
 
@@ -202,8 +180,6 @@ JobScope::JobScope(ThreadContext *threadContext) :
 {
     if (threadContext) {
         threadContext->activeScope = this;
-        parentScope = &rootScope;
-        ++parentScope->pendingCount;
     }
 }
 
@@ -217,7 +193,7 @@ JobScope::~JobScope() {
     }
 }
 
-void JobScope::enqueueNormalJob(Job &job) {
+void JobScope::enqueueJob(Job &job) {
     threadContext->enqueueJob(job);
 }
 
@@ -227,40 +203,15 @@ JobScope *JobScope::getActiveScope() {
 
 void JobScope::dispatch() {
     assert(threadContext->queue);
-
-    // We'll be "blocking" this thread while possibly holding background-quota (maximum 1).
-    // Release the held quota (if any) for the duration, to avoid creating starvation scenarios
-    // (where this dispatch runs jobs that "dispatch-block" inside further background jobs which never complete because the quota is exhausted).
-    // This can lead to the maximum background concurrency temporarily exceeding the regular limit, but that is fine.
-    int isBackground = threadContext->isRunningBackgroundJob;
-    assert(isBackground == 0 || isBackground == 1);
-    threadContext->isRunningBackgroundJob = 0;
-    bgSemaphore += isBackground; // release background quota (if holding it)
-
     while (pendingCount) {
         if (!threadContext->dispatchSingleJob()) {
             PAUSE();
         }
     }
-
-    assert(threadContext->isRunningBackgroundJob == 0);
-    threadContext->isRunningBackgroundJob = isBackground;
-    bgSemaphore -= isBackground; // retake released background quota (unconditionally, so semaphore may go below 0)
 }
 
-void Job::enqueueNormalJob(Job &job) {
+void Job::enqueueJob(Job &job) {
     currentThreadContext.enqueueJob(job);
-}
-
-void Job::enqueueBackgroundJob(Job &job) {
-    job.scope = &rootScope;
-    ++rootScope.pendingCount;
-    bgQueue.push(job);
-}
-
-
-void JobSystem::modifyBackgroundConcurrency(int diff) {
-    bgSemaphore += diff;
 }
 
 void JobSystem::dispatch() {
@@ -289,8 +240,6 @@ void JobSystem::stop() {
         thread.join();
     }
     workersShouldStop = false;
-    assert(rootScope.pendingCount == 0);
-    assert(bgQueue.empty());
     assert(mainQueue.empty());
     workerThreads.clear();
     delete [] workerQueues;

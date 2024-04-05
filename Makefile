@@ -30,7 +30,6 @@ LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
 
 
 GAME_TARGET=vulkantest$(EXE)
-DEPS_TARGET=3rdparty/3rdparty.a
 
 GAME_C_SOURCES=$(call rwildcard,src,*.c)
 GAME_CXX_SOURCES=$(call rwildcard,src,*.cpp)
@@ -61,7 +60,6 @@ clean:
 	@find -name '*.o' | xargs $(RM)
 	@find -name '*.spv' | xargs $(RM)
 	@$(RM) $(GAME_TARGET)
-	@$(RM) $(DEPS_TARGET)
 
 %.o: %.cpp
 	@echo "Compiling $@"
@@ -71,13 +69,9 @@ clean:
 	@echo "Compiling $@"
 	@$(CC) $(CFLAGS) -o $@ $<
 
-$(GAME_TARGET): $(GAME_OBJECTS) $(DEPS_TARGET)
+$(GAME_TARGET): $(GAME_OBJECTS) $(DEPS_OBJECTS)
 	@echo "Linking $@"
 	@$(LD) $^ -o $@ $(LDFLAGS)
-
-$(DEPS_TARGET): $(DEPS_OBJECTS)
-	@echo "Archiving $@"
-	@ar rcs $@ $^
 
 %.vert.spv: %.vert
 	@echo "Compiling $@"

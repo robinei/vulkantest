@@ -16,9 +16,11 @@
 
 #define MAX_READER_THREADS 2
 
+
+
 struct ReadRequest {
     std::string path;
-    std::function<void (unsigned char *, size_t)> handler;
+    AssetHandle asset;
 };
 
 
@@ -53,12 +55,8 @@ public:
 };
 
 static nvrhi::IDevice *device;
-
-static std::mutex commandListsMutex;
-static std::vector<nvrhi::CommandListHandle> commandLists;
-
+static thread_local nvrhi::CommandListHandle commandList;
 static ConcurrentQueue<ReadRequest> readRequestQueue;
-
 static std::vector<std::thread> readerThreads;
 
 
@@ -68,25 +66,21 @@ class AssetMap {
     std::unordered_map<std::string, Ref<Asset<T>>> map;
 
 public:
-    template <typename Handler>
-    Ref<Asset<T>> getOrCreateAsset(const std::string &path, Handler &&handler) {
+    template <typename Loader>
+    Ref<Asset<T>> getOrCreateAsset(const std::string &path, Loader &&loader) {
         Ref<Asset<T>> asset;
         std::lock_guard<std::mutex> lock(mutex);
         auto it = map.find(path);
         if (it != map.end()) {
             asset = it->second;
         } else {
-            asset = new Asset<T>(path);
+            asset = new Asset<T>(path, std::forward<Loader>(loader));
             map.insert({path, asset});
             asset->release(); // ref count starts at 1, so release after we are storing a reference
+
             ReadRequest request;
             request.path = path;
-            request.handler = [asset, handler = std::move(handler)] (unsigned char *buffer, size_t size) mutable {
-                Job::enqueue([asset, buffer, size, handler = std::move(handler)] () mutable {
-                    asset->setLoadedAsset(std::move(handler(asset->getPath(), buffer, size)));
-                    free(buffer);
-                }, JobType::BACKGROUND);
-            };
+            request.asset = asset.get();
             readRequestQueue.push(std::move(request));
         }
         asset->addWaitingScope(JobScope::getActiveScope());
@@ -100,60 +94,35 @@ public:
 };
 
 
+static AssetMap<Blob> blobAssets;
 static AssetMap<nvrhi::ShaderHandle> shaderAssets;
 static AssetMap<nvrhi::TextureHandle> texture2DAssets;
 static AssetMap<nvrhi::TextureHandle> textureCubeAssets;
 
 
-static nvrhi::CommandListHandle getOrCreateCommandList() {
-    nvrhi::CommandListHandle commandList;
-    {
-        std::lock_guard<std::mutex> lock(commandListsMutex);
-        if (!commandLists.empty()) {
-            commandList = commandLists.back();
-            commandLists.pop_back();
-        } else {
-            commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
-        }
-    }
-    commandList->open();
-    return commandList;
-}
-
-static void finishCommandList(nvrhi::CommandListHandle commandList) {
-    commandList->close();
-    device->executeCommandList(commandList);
-    std::lock_guard<std::mutex> lock(commandListsMutex);
-    commandLists.push_back(commandList);
-}
-
-
-static unsigned char *readFile(const char *path, size_t &size) {
+static void readFile(const char *path, Blob &blob) {
     FILE *fp = fopen(path, "rb");
     assert(fp);
     fseek(fp, 0, SEEK_END);
-    size = ftell(fp);
+    size_t size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    unsigned char *buf = (unsigned char *)malloc(size + 1);
-    size_t n = fread(buf, 1, size, fp);
+    blob.resize(size);
+    size_t n = fread(blob.data(), 1, size, fp);
     assert(n == size);
     fclose(fp);
-    buf[size] = '\0';
-    return buf;
 }
 
 static void readerThreadFunc() {
+    commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     for (;;) {
         auto request = readRequestQueue.pop();
         if (request.path.empty()) {
             logger->debug("Stopping reader thread.");
             break;
         }
-        size_t size = 0;
-        unsigned char *buffer = readFile(request.path.c_str(), size);
-        assert(buffer);
-        request.handler(buffer, size);
+        request.asset->loadIfNotLoaded();
     }
+    commandList = nullptr;
 }
 
 
@@ -176,17 +145,27 @@ void AssetLoader::cleanup() {
     shaderAssets.clear();
     texture2DAssets.clear();
     textureCubeAssets.clear();
-    std::lock_guard<std::mutex> lock(commandListsMutex);
-    commandLists.clear();
     device = nullptr;
+}
+
+BlobAssetHandle AssetLoader::getBlob(const std::string &path) {
+    return blobAssets.getOrCreateAsset(path, [] (const std::string &path) {
+        Blob blob;
+        readFile(path.c_str(), blob);
+        return blob;
+    });
 }
 
 ShaderAssetHandle AssetLoader::getShader(const std::string &path, nvrhi::ShaderType type) {
     std::string realPath("assets/shaders/");
     realPath.append(path);
-    return shaderAssets.getOrCreateAsset(realPath, [type] (const std::string &path, unsigned char *buffer, size_t size) {
-        return device->createShader(nvrhi::ShaderDesc(type), buffer, size);
-    });
+    
+    return shaderAssets.getOrCreateAsset(realPath, [type] (const std::string &path) {
+        auto blobAsset = getBlob(path);
+        auto shader = device->createShader(nvrhi::ShaderDesc(type), blobAsset->get().data(), blobAsset->get().size());
+        assert(shader);
+        return shader;
+    }); 
 }
 
 TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::TextureDimension dimension) {
@@ -197,9 +176,11 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
     auto &assets =
         dimension == nvrhi::TextureDimension::Texture2D ? texture2DAssets : textureCubeAssets;
 
-    return assets.getOrCreateAsset(realPath, [dimension] (const std::string &path, unsigned char *buffer, size_t size) {
+    return assets.getOrCreateAsset(realPath, [dimension] (const std::string &path) {
+        auto blobAsset = getBlob(path);
+
         int width, height, comp;
-        int ok = stbi_info_from_memory(buffer, size, &width, &height, &comp);
+        int ok = stbi_info_from_memory(blobAsset->get().data(), blobAsset->get().size(), &width, &height, &comp);
         assert(ok);
 
         int reqComp = 0;
@@ -212,7 +193,7 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
             default: assert(false);
         }
 
-        stbi_uc *decodedBuf = stbi_load_from_memory(buffer, size, &width, &height, &comp, reqComp);
+        stbi_uc *decodedBuf = stbi_load_from_memory(blobAsset->get().data(), blobAsset->get().size(), &width, &height, &comp, reqComp);
         assert(decodedBuf);
 
         auto textureDesc = nvrhi::TextureDesc()
@@ -234,7 +215,7 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
         logger->debug("Loaded texture %s (%d x %d x %d/%d)", path.c_str(), width, height, comp, reqComp);
 
         size_t rowPitch = width*std::max(comp, reqComp);
-        auto commandList = getOrCreateCommandList();
+        commandList->open();
         if (dimension == nvrhi::TextureDimension::TextureCube) {
             for (int i = 0; i < 6; ++i) {
                 commandList->writeTexture(texture, /* arraySlice = */ i, /* mipLevel = */ 0, decodedBuf + i*rowPitch*height, rowPitch);
@@ -244,7 +225,8 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
         }
         commandList->setPermanentTextureState(texture, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
-        finishCommandList(commandList);
+        commandList->close();
+        device->executeCommandList(commandList);
         free(decodedBuf);
 
         return texture;

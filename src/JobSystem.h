@@ -5,11 +5,6 @@
 
 class Job;
 
-enum class JobType {
-    NORMAL,
-    BACKGROUND,
-};
-
 class JobScope {
     friend Job;
     friend class JobSystem;
@@ -20,7 +15,7 @@ class JobScope {
     JobScope *parentScope;
     std::atomic<int> pendingCount;
 
-    void enqueueNormalJob(Job &job);
+    void enqueueJob(Job &job);
 
 public:
     JobScope();
@@ -38,7 +33,7 @@ public:
     }
 
     template <typename Func>
-    inline void enqueue(Func &&func, JobType type = JobType::NORMAL);
+    inline void enqueue(Func &&func);
 
     void dispatch();
 };
@@ -81,44 +76,28 @@ class Job {
         --scope->pendingCount;
     }
 
-    static void enqueueNormalJob(Job &job);
-    static void enqueueBackgroundJob(Job &job);
+    static void enqueueJob(Job &job);
 
 public:
     template <typename Func>
-    inline static void enqueue(Func &&func, JobType type = JobType::NORMAL) {
+    inline static void enqueue(Func &&func) {
         Job job;
         job.setFunc(std::forward<Func>(func));
-        switch (type) {
-        case JobType::NORMAL:
-            enqueueNormalJob(job);
-            break;
-        case JobType::BACKGROUND:
-            enqueueBackgroundJob(job);
-            break;
-        }
+        enqueueJob(job);
     }
 };
 
 static_assert(sizeof(Job) == 64);
 
 template <typename Func>
-inline void JobScope::enqueue(Func &&func, JobType type) {
+inline void JobScope::enqueue(Func &&func) {
     Job job;
     job.setFunc(std::forward<Func>(func));
-    switch (type) {
-    case JobType::NORMAL:
-        enqueueNormalJob(job);
-        break;
-    case JobType::BACKGROUND:
-        Job::enqueueBackgroundJob(job);
-        break;
-    }
+    enqueueJob(job);
 }
 
 class JobSystem {
 public:
-    static void modifyBackgroundConcurrency(int diff);
     static void dispatch();
     static void start();
     static void stop();
