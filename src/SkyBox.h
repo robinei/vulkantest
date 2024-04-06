@@ -7,4 +7,5 @@ void deinitSkyBox();
 
 void setSkyBoxTexture(const std::string &path);
 
+void updateSkyBox(RenderContext &context);
 void renderSkyBox(RenderContext &context);

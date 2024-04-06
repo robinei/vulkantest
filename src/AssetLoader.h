@@ -20,7 +20,9 @@ protected:
 
 public:
     const T &get() {
-        loadIfNotLoaded();
+        if (!loaded) {
+            loadIfNotLoaded();
+        }
         return asset;
     }
 };

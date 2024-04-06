@@ -14,7 +14,7 @@
 #include <vector>
 #include <unordered_map>
 
-#define MAX_READER_THREADS 2
+#define MAX_LOADER_THREADS 2
 
 
 template class Asset<Blob>;
@@ -59,9 +59,9 @@ struct ReadRequest {
 };
 
 static nvrhi::IDevice *device;
-static thread_local nvrhi::CommandListHandle commandList;
-static ConcurrentQueue<ReadRequest> readRequestQueue;
-static std::vector<std::thread> readerThreads;
+static thread_local bool isLoaderThread;
+static ConcurrentQueue<ReadRequest> loadRequestQueue;
+static std::vector<std::thread> loaderThreads;
 
 
 
@@ -69,42 +69,43 @@ template <typename T>
 class AssetImpl : public Asset<T> {
     std::string type;
     std::string path;
+    
     std::mutex mutex;
-    std::vector<JobScope *> waitingScopes;
+    std::condition_variable cond;
+    bool loading = false;
 
 public:
     AssetImpl(const char *type, const std::string &path) : type(type), path(path) { }
-    ~AssetImpl() { logger->debug("Destroying %s asset: %s", type.c_str(), path.c_str()); }
+    //~AssetImpl() { logger->debug("Destroying %s asset: %s", type.c_str(), path.c_str()); }
 
     const std::string &getPath() const { return path; }
 
-    void addWaitingScope(JobScope *scope) {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!this->loaded) {
-            scope->addPendingCount(1);
-            waitingScopes.push_back(scope);
-        }
-    }
-
     void loadIfNotLoaded() override {
+        assert(isLoaderThread && "did you call get() on non-ready Asset, on a non-asset-loader thread?");
         if (this->loaded) {
             return;
         }
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!this->loaded) {
-            logger->debug("Loading %s asset: %s", type.c_str(), path.c_str());
-            this->load();
-            this->loaded = true;
-            for (auto scope : waitingScopes) {
-                scope->addPendingCount(-1);
+
+        {
+            std::unique_lock lock(mutex);
+            if (this->loaded) {
+                return;
             }
-            waitingScopes.clear();
+            if (loading) {
+                cond.wait(lock, [this] { return (bool)this->loaded; });
+                return;
+            } else {
+                loading = true;
+            }
         }
+
+        logger->debug("Loading %s asset: %s", type.c_str(), path.c_str());
+        this->load();
     }
 
-    const T &get() {
-        loadIfNotLoaded();
-        return this->asset;
+    void loadingFinished() {
+        this->loaded = true;
+        cond.notify_all();
     }
 };
 
@@ -124,6 +125,7 @@ protected:
         size_t n = fread(asset.data, 1, asset.size, fp);
         assert(n == asset.size);
         fclose(fp);
+        loadingFinished();
     }
 };
 
@@ -157,6 +159,7 @@ protected:
         asset.width = width;
         asset.height = height;
         asset.pitch = width*std::max(comp, reqComp);
+        loadingFinished();
     }
 };
 
@@ -173,6 +176,7 @@ protected:
         auto &blob = blobAsset->get();
         asset = device->createShader(nvrhi::ShaderDesc(shaderType), blob.data, blob.size);
         assert(asset);
+        loadingFinished();
     }
 };
 
@@ -210,23 +214,26 @@ protected:
             textureDesc.setArraySize(6);
             textureDesc.setHeight(height);
         }
-        nvrhi::TextureHandle texture = device->createTexture(textureDesc);
-        assert(texture);
+        asset = device->createTexture(textureDesc);
+        assert(asset);
 
+        auto commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
         commandList->open();
         if (dimension == nvrhi::TextureDimension::TextureCube) {
             for (int i = 0; i < 6; ++i) {
-                commandList->writeTexture(texture, /* arraySlice = */ i, /* mipLevel = */ 0, image.data + i*image.pitch*height, image.pitch);
+                commandList->writeTexture(asset, /* arraySlice = */ i, /* mipLevel = */ 0, image.data + i*image.pitch*height, image.pitch);
             }
         } else {
-            commandList->writeTexture(texture, /* arraySlice = */ 0, /* mipLevel = */ 0, image.data, image.pitch);
+            commandList->writeTexture(asset, /* arraySlice = */ 0, /* mipLevel = */ 0, image.data, image.pitch);
         }
-        commandList->setPermanentTextureState(texture, nvrhi::ResourceStates::ShaderResource);
+        commandList->setPermanentTextureState(asset, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
         commandList->close();
-        device->executeCommandList(commandList);
 
-        asset = texture;
+        Job::enqueueOnMain([this, commandList] {
+            device->executeCommandList(commandList);
+            this->loadingFinished();
+        });
     }
 };
 
@@ -254,9 +261,8 @@ public:
             ReadRequest request;
             request.path = path;
             request.asset = asset;
-            readRequestQueue.push(std::move(request));
+            loadRequestQueue.push(std::move(request));
         }
-        asset->addWaitingScope(JobScope::getActiveScope());
         return asset;
     }
 
@@ -285,35 +291,34 @@ static AssetMap<TextureAssetImpl> texture2DAssets;
 static AssetMap<TextureAssetImpl> textureCubeAssets;
 
 
-static void readerThreadFunc() {
-    commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+static void loaderThreadFunc() {
+    isLoaderThread = true;
     for (;;) {
-        auto request = readRequestQueue.pop();
+        auto request = loadRequestQueue.pop();
         if (request.path.empty()) {
-            logger->debug("Stopping reader thread.");
+            logger->debug("Stopping asset loader thread.");
             break;
         }
         request.asset->loadIfNotLoaded();
     }
-    commandList = nullptr;
 }
 
 void AssetLoader::initialize(nvrhi::IDevice *dev) {
     device = dev;
-    for (int i = 0; i < MAX_READER_THREADS; ++i) {
-        readerThreads.emplace_back([] { readerThreadFunc(); });
+    for (int i = 0; i < MAX_LOADER_THREADS; ++i) {
+        loaderThreads.emplace_back([] { loaderThreadFunc(); });
     }
 }
 
 void AssetLoader::cleanup() {
-    for (int i = 0; i < MAX_READER_THREADS; ++i) {
-        readRequestQueue.push(ReadRequest());
+    for (int i = 0; i < MAX_LOADER_THREADS; ++i) {
+        loadRequestQueue.push(ReadRequest());
     }
-    for (auto &thread : readerThreads) {
+    for (auto &thread : loaderThreads) {
         thread.join();
     }
-    assert(readRequestQueue.empty());
-    readerThreads.clear();
+    assert(loadRequestQueue.empty());
+    loaderThreads.clear();
     blobAssets.clear();
     imageAssets.clear();
     shaderAssets.clear();

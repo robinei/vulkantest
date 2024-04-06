@@ -1,8 +1,8 @@
 #include "JobSystem.h"
 
 #include "wsq.hpp"
-#include "MPMCQueue.h"
 #include <thread>
+#include <mutex>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -12,7 +12,7 @@
 #define SET_THREAD_NAME(name) pthread_setname_np(pthread_self(), name)
 #define PAUSE() _mm_pause()
 
-#define PRINT_STATS 1
+#define PRINT_STATS 0
 #if PRINT_STATS
 #define INC_STAT(stat) ++(stat)
 #else
@@ -27,6 +27,10 @@ static int workerCount;
 static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
+
+static std::mutex pendingMainJobsMutex;
+static std::vector<Job> pendingMainJobs;
+static JobScope dummyScope(nullptr);
 
 
 class ThreadContext {
@@ -214,8 +218,22 @@ void Job::enqueueJob(Job &job) {
     currentThreadContext.enqueueJob(job);
 }
 
+void Job::enqueueJobOnMain(Job &job) {
+    std::lock_guard<std::mutex> lock(pendingMainJobsMutex);
+    job.scope = &dummyScope;
+    pendingMainJobs.push_back(job);
+}
+
 void JobSystem::dispatch() {
     currentThreadContext.dispatchActiveScope();
+}
+
+void JobSystem::runPendingMainJobs() {
+    std::lock_guard<std::mutex> lock(pendingMainJobsMutex);
+    for (auto &job : pendingMainJobs) {
+        job.run();
+    }
+    pendingMainJobs.clear();
 }
 
 void JobSystem::start() {

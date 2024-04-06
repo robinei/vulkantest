@@ -23,8 +23,6 @@ static nvrhi::BufferHandle lineVertexBuffer;
 static nvrhi::GraphicsPipelineHandle lineGraphicsPipeline;
 static nvrhi::BindingSetHandle lineBindingSet;
 
-static bool initialized;
-
 void initDebugLines() {
     vertShader = AssetLoader::getShader("trivial_color.vert.spv", nvrhi::ShaderType::Vertex);
     fragShader = AssetLoader::getShader("trivial_color.frag.spv", nvrhi::ShaderType::Pixel);
@@ -41,6 +39,9 @@ static void doInit(RenderContext &context) {
         .setVisibility(nvrhi::ShaderType::All)
         .addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(float)*16));
     nvrhi::BindingLayoutHandle bindingLayout = context.device->createBindingLayout(layoutDesc);
+    
+    lineBindingSet = context.device->createBindingSet(nvrhi::BindingSetDesc()
+        .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16)), bindingLayout);
 
     nvrhi::VertexAttributeDesc attributes[] = {
         nvrhi::VertexAttributeDesc()
@@ -65,9 +66,7 @@ static void doInit(RenderContext &context) {
     pipelineDesc.renderState.rasterState.setCullNone();
     pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
     lineGraphicsPipeline = context.device->createGraphicsPipeline(pipelineDesc, context.framebuffer);
-    
-    lineBindingSet = context.device->createBindingSet(nvrhi::BindingSetDesc()
-        .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16)), bindingLayout);
+    assert(lineGraphicsPipeline);
 }
 
 void deinitDebugLines() {
@@ -92,13 +91,18 @@ void drawDebugLine(const glm::vec3 &a, const glm::vec3 &b, const glm::vec4 &colo
     line->b.color = color;
 }
 
-void renderDebugLines(RenderContext &context) {
-    if (!initialized) {
+void updateDebugLines(RenderContext &context) {
+    if (!lineGraphicsPipeline) {
         if (!vertShader->isLoaded() || !fragShader->isLoaded()) {
             return;
         }
         doInit(context);
-        initialized = true;
+    }
+}
+
+void renderDebugLines(RenderContext &context) {
+    if (!lineGraphicsPipeline) {
+        return;
     }
     context.commandList->writeBuffer(lineVertexBuffer, lines, sizeof(Line)*lineCount);
     auto graphicsState = nvrhi::GraphicsState()

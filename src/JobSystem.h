@@ -40,6 +40,7 @@ public:
 
 class Job {
     friend JobScope;
+    friend class JobSystem;
     friend class ThreadContext;
 
     using Invoker = void (*)(void *);
@@ -77,6 +78,7 @@ class Job {
     }
 
     static void enqueueJob(Job &job);
+    static void enqueueJobOnMain(Job &job);
 
 public:
     template <typename Func>
@@ -84,6 +86,13 @@ public:
         Job job;
         job.setFunc(std::forward<Func>(func));
         enqueueJob(job);
+    }
+
+    template <typename Func>
+    inline static void enqueueOnMain(Func &&func) {
+        Job job;
+        job.setFunc(std::forward<Func>(func));
+        enqueueJobOnMain(job);
     }
 };
 
@@ -99,6 +108,7 @@ inline void JobScope::enqueue(Func &&func) {
 class JobSystem {
 public:
     static void dispatch();
+    static void runPendingMainJobs();
     static void start();
     static void stop();
 };

@@ -122,7 +122,7 @@ int main(int argc, char* argv[]) {
     logger->debug("Initialized with errors: %s", SDL_GetError());
 
     nvrhi::IDevice *device = deviceManager->getDevice();
-    nvrhi::CommandListHandle commandList = device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+    nvrhi::CommandListHandle commandList = device->createCommandList();
 
     AssetLoader::initialize(device);
     initDebugLines();
@@ -175,15 +175,20 @@ int main(int argc, char* argv[]) {
         // game update should be here
 
         jobScope.dispatch(); // let all update jobs finish before we start rendering
+        JobSystem::runPendingMainJobs();
+
+        RenderContext renderContext;
+        renderContext.device = device;
+        renderContext.framebuffer = deviceManager->getCurrentFramebuffer();
+        renderContext.camera = &camera;
+        renderContext.viewport = nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight());
+        renderContext.commandList = commandList;
+
+        updateSkyBox(renderContext);
+        updateDebugLines(renderContext);
 
         if (deviceManager->beginFrame()) {
-            RenderContext renderContext;
-            renderContext.device = device;
             renderContext.framebuffer = deviceManager->getCurrentFramebuffer();
-            renderContext.camera = &camera;
-            renderContext.viewport = nvrhi::Viewport(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight());
-            renderContext.commandList = commandList;
-
             commandList->open();
             {
                 nvrhi::utils::ClearColorAttachment(commandList, renderContext.framebuffer, 0, nvrhi::Color(0.f));

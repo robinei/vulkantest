@@ -42,14 +42,18 @@ static nvrhi::SamplerHandle linearClampSampler;
 static nvrhi::BindingLayoutHandle bindingLayout;
 static nvrhi::BindingSetHandle skyboxBindings;
 
-static bool initialized;
-
 void initSkyBox() {
     vertShader = AssetLoader::getShader("skybox.vert.spv", nvrhi::ShaderType::Vertex);
     fragShader = AssetLoader::getShader("skybox.frag.spv", nvrhi::ShaderType::Pixel);
 }
 
 static void doInit(RenderContext &context) {
+    auto samplerDesc = nvrhi::SamplerDesc()
+        .setAllFilters(true)
+        .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+    samplerDesc.setAllFilters(true);
+    linearClampSampler = context.device->createSampler(samplerDesc);
+
     skyboxVertexBuffer = context.device->createBuffer(nvrhi::BufferDesc()
         .setByteSize(sizeof(skyboxVertices))
         .setIsVertexBuffer(true)
@@ -62,8 +66,11 @@ static void doInit(RenderContext &context) {
         .setInitialState(nvrhi::ResourceStates::IndexBuffer)
         .setKeepInitialState(true) // enable fully automatic state tracking
         .setDebugName("Index Buffer"));
+    context.commandList->open();
     context.commandList->writeBuffer(skyboxVertexBuffer, skyboxVertices, sizeof(skyboxVertices));
     context.commandList->writeBuffer(skyboxIndexBuffer, skyboxIndices, sizeof(skyboxIndices));
+    context.commandList->close();
+    context.device->executeCommandList(context.commandList);
 
     auto layoutDesc = nvrhi::BindingLayoutDesc()
         .setVisibility(nvrhi::ShaderType::All)
@@ -91,12 +98,7 @@ static void doInit(RenderContext &context) {
     pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
     pipelineDesc.renderState.depthStencilState.setDepthWriteEnable(false);
     skyboxPipeline = context.device->createGraphicsPipeline(pipelineDesc, context.framebuffer);
-
-    auto samplerDesc = nvrhi::SamplerDesc()
-        .setAllFilters(true)
-        .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
-    samplerDesc.setAllFilters(true);
-    linearClampSampler = context.device->createSampler(samplerDesc);
+    assert(skyboxPipeline);
 }
 
 void deinitSkyBox() {
@@ -116,13 +118,12 @@ void setSkyBoxTexture(const std::string &path) {
     skyboxBindings = nullptr;
 }
 
-void renderSkyBox(RenderContext &context) {
-    if (!initialized) {
+void updateSkyBox(RenderContext &context) {
+    if (!skyboxPipeline) {
         if (!vertShader->isLoaded() || !fragShader->isLoaded()) {
             return;
         }
         doInit(context);
-        initialized = true;
     }
     if (!skyboxBindings) {
         if (!cubemap->isLoaded()) {
@@ -132,6 +133,12 @@ void renderSkyBox(RenderContext &context) {
             .addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(float)*16))
             .addItem(nvrhi::BindingSetItem::Sampler(0, linearClampSampler))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(1, cubemap->get())), bindingLayout);
+    }
+}
+
+void renderSkyBox(RenderContext &context) {
+    if (!skyboxPipeline || !skyboxBindings) {
+        return;
     }
     auto graphicsState = nvrhi::GraphicsState()
         .setPipeline(skyboxPipeline)
