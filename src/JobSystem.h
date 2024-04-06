@@ -102,3 +102,5 @@ public:
     static void start();
     static void stop();
 };
+
+void testJobSystem();

@@ -16,15 +16,14 @@ struct Line {
 static Line lines[MAX_LINES];
 static std::atomic<int> lineCount;
 
-static std::atomic<bool> initialized;
-static std::atomic<bool> initializing;
-
 static ShaderAssetHandle vertShader;
 static ShaderAssetHandle fragShader;
 
 static nvrhi::BufferHandle lineVertexBuffer;
 static nvrhi::GraphicsPipelineHandle lineGraphicsPipeline;
 static nvrhi::BindingSetHandle lineBindingSet;
+
+static bool initialized;
 
 void initDebugLines() {
     vertShader = AssetLoader::getShader("trivial_color.vert.spv", nvrhi::ShaderType::Vertex);
@@ -98,12 +97,6 @@ void renderDebugLines(RenderContext &context) {
         if (!vertShader->isLoaded() || !fragShader->isLoaded()) {
             return;
         }
-        bool expected = false;
-        if (!initializing.compare_exchange_strong(expected, true)) {
-            return;
-        }
-        assert(initializing);
-        assert(!initialized);
         doInit(context);
         initialized = true;
     }

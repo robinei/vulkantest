@@ -245,3 +245,46 @@ void JobSystem::stop() {
     delete [] workerQueues;
     workerQueues = nullptr;
 }
+
+
+#if 0
+#include <chrono>
+#include "Logger.h"
+
+static std::atomic<int> dtorCount;
+static std::atomic<int> ctorCount;
+static std::atomic<int> cctorCount;
+static std::atomic<int> mctorCount;
+static std::atomic<int> cassignCount;
+static std::atomic<int> massignCount;
+struct Counter {
+    __attribute__((noinline)) ~Counter() { ++dtorCount; }
+    __attribute__((noinline)) Counter() { ++ctorCount; }
+    __attribute__((noinline)) Counter(const Counter &) { ++cctorCount; }
+    __attribute__((noinline)) Counter(Counter &&) { ++mctorCount; }
+    __attribute__((noinline)) Counter& operator=(const Counter& other) { ++cassignCount; return *this; }
+    __attribute__((noinline)) Counter& operator=(Counter&& other) noexcept { ++massignCount; return *this; }
+};
+
+void testJobSystem() {
+    auto start = std::chrono::high_resolution_clock::now();
+    std::atomic<int> counter(0);
+    Counter counterObject;
+    {
+        JobScope scope;
+        for (int i = 0; i < 1000; ++i) {
+            Job::enqueue([&counter, &scope, counterObject = std::move(counterObject)] {
+                JobScope scope2(scope);
+                for (int j = 0; j < 1000; ++j) {
+                    Job::enqueue([&counter] {
+                        ++counter;
+                    });
+                }
+            });
+        }
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    logger->info("Test counter: %d in %d ms", (int)counter, (int)((end-start)/std::chrono::milliseconds(1)));
+    logger->info("dtorCount %d, ctorCount: %d, cctorCount: %d, mctorCount: %d, cassignCount: %d, massignCount: %d", (int)dtorCount, (int)ctorCount, (int)cctorCount, (int)mctorCount, (int)cassignCount, (int)massignCount);
+}
+#endif
