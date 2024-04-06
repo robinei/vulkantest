@@ -23,6 +23,7 @@
 #include "DebugLines.h"
 #include "SkyBox.h"
 #include "Camera.h"
+#include "Logger.h"
 
 
 #pragma clang diagnostic push
@@ -30,30 +31,30 @@
 class SdlLogger : public Logger {
     void logMessage(LogLevel level, const char *messageText) override {
         switch (level) {
-        case Logger::LogLevel::Debug:
-            SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, messageText);
-            break;
-        case Logger::LogLevel::Info:
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, messageText);
-            break;
-        case Logger::LogLevel::Warning:
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, messageText);
-            break;
-        case Logger::LogLevel::Error:
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, messageText);
-            break;
-        case Logger::LogLevel::Critical:
-            SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, messageText);
-            break;
+        case Logger::LogLevel::Debug: SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case Logger::LogLevel::Info: SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case Logger::LogLevel::Warning: SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case Logger::LogLevel::Error: SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case Logger::LogLevel::Critical: SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        }
+    }
+};
+struct MessageCallback : public nvrhi::IMessageCallback {
+    void message(nvrhi::MessageSeverity severity, const char* messageText) override {
+        switch (severity) {
+        case nvrhi::MessageSeverity::Info: SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case nvrhi::MessageSeverity::Warning: SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case nvrhi::MessageSeverity::Error: SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
+        case nvrhi::MessageSeverity::Fatal: SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, messageText); break;
         }
     }
 };
 #pragma clang diagnostic pop
 
 
+static SDL_Window *window;
 static SdlLogger sdlLogger;
 Logger *const logger = &sdlLogger;
-
 
 #define SDL_CHECK(Cond) do { \
     if (!(Cond)) { \
@@ -74,12 +75,26 @@ static int EventWatcherCallback(void *userdata, SDL_Event *event) {
     return 0;
 }
 
-
+struct DelegateImpl : public DeviceManagerDelegate {
+    bool createSurfaceCallback(VkInstance instance, VkSurfaceKHR *surface) override {
+        if (!SDL_Vulkan_CreateSurface(window, instance, surface)) {
+            logger->critical("Error creating Vulkan surface: %s", SDL_GetError());
+            return false;
+        }
+        assert(surface);
+        logger->debug("Created SDL Vulkan surface.");
+        return true;
+    }
+};
 
 int main(int argc, char* argv[]) {
     JobSystem::start();
+
+    DelegateImpl delegate;
+    MessageCallback messageCallback;
     DeviceCreationParameters params;
-    params.logger = logger;
+    params.delegate = &delegate;
+    params.messageCallback = &messageCallback;
     params.enableDebugRuntime = true;
     params.enableNvrhiValidationLayer = true;
     params.vsyncEnabled = true;
@@ -87,7 +102,7 @@ int main(int argc, char* argv[]) {
     SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) == 0);
     SDL_CHECK(SDL_Vulkan_LoadLibrary(nullptr) == 0);
-    SDL_Window *window = SDL_CreateWindow("vulkantest",
+    window = SDL_CreateWindow("vulkantest",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         params.backBufferWidth, params.backBufferHeight,
         SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -100,16 +115,6 @@ int main(int argc, char* argv[]) {
     for (const char *extensionName : extensionNames) {
         params.requiredVulkanInstanceExtensions.push_back(extensionName);
     }
-
-    params.createSurfaceCallback = [&](VkInstance vkInst, VkSurfaceKHR *surface) {
-        if (!SDL_Vulkan_CreateSurface(window, vkInst, surface)) {
-            logger->critical("Error creating Vulkan surface: %s", SDL_GetError());
-            return false;
-        }
-        assert(surface);
-        logger->debug("Created SDL Vulkan surface.");
-        return true;
-    };
 
     std::unique_ptr<DeviceManager> deviceManager(DeviceManager::create(nvrhi::GraphicsAPI::VULKAN));
     SDL_AddEventWatch(EventWatcherCallback, deviceManager.get());

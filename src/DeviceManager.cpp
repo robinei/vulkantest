@@ -24,8 +24,18 @@
 
 #include "DeviceManager.h"
 #include <nvrhi/utils.h>
+#include <cstdarg>
 
-static StdoutLogger stdoutLogger;
+void DeviceManager::logMessage(nvrhi::MessageSeverity severity, const char *fmt, ...) const {
+    if (m_DeviceParams.messageCallback) {
+        char buf[2048];
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+        m_DeviceParams.messageCallback->message(severity, buf);
+    }
+}
 
 bool DeviceManager::createInstance(const InstanceParameters& params)
 {
@@ -33,7 +43,6 @@ bool DeviceManager::createInstance(const InstanceParameters& params)
         return true;
 
     static_cast<InstanceParameters&>(m_DeviceParams) = params;
-    m_MessageCallback.logger = params.logger ? params.logger : &stdoutLogger;
 
     m_InstanceCreated = createInstanceInternal();
     return m_InstanceCreated;

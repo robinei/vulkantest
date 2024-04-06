@@ -40,19 +40,21 @@
 
 #if USE_VULKAN
 #include <nvrhi/vulkan.h>
+#else
+#include <nvrhi/nvrhi.h>
 #endif
 
-#include <nvrhi/nvrhi.h>
 
-#include <functional>
-#include <atomic>
-
-#include "Logger.h"
-
+struct DeviceManagerDelegate {
+#if USE_VULKAN
+    virtual void deviceCreateInfoCallback(VkDeviceCreateInfo &createInfo) { }
+    virtual bool createSurfaceCallback(VkInstance instance, VkSurfaceKHR *surface) = 0;
+#endif
+};
 
 struct InstanceParameters
 {
-    Logger *logger = nullptr;
+    nvrhi::IMessageCallback *messageCallback = nullptr;
     bool enableDebugRuntime = false;
     bool headlessDevice = false;
 
@@ -66,6 +68,7 @@ struct InstanceParameters
 
 struct DeviceCreationParameters : public InstanceParameters
 {
+    DeviceManagerDelegate *delegate;
     uint32_t backBufferWidth = 1920;
     uint32_t backBufferHeight = 1080;
     uint32_t swapChainBufferCount = 3;
@@ -91,12 +94,10 @@ struct DeviceCreationParameters : public InstanceParameters
     std::vector<std::string> requiredVulkanDeviceExtensions;
     std::vector<std::string> optionalVulkanDeviceExtensions;
     std::vector<size_t> ignoredVulkanValidationMessageLocations;
-    std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
-    std::function<bool(VkInstance, VkSurfaceKHR*)> createSurfaceCallback;
 
     // This pointer specifies an optional structure to be put at the end of the chain for 'vkGetPhysicalDeviceFeatures2' call.
     // The structure may also be a chain, and must be alive during the device initialization process.
-    // The elements of this structure will be populated before 'deviceCreateInfoCallback' is called,
+    // The elements of this structure will be populated before 'delegate.deviceCreateInfoCallback' is called,
     // thereby allowing applications to determine if certain features may be enabled on the device.
     void* physicalDeviceFeatures2Extensions = nullptr;
 #endif
@@ -140,7 +141,6 @@ public:
     [[nodiscard]] virtual nvrhi::IDevice *getDevice() const = 0;
     [[nodiscard]] virtual const char *getRendererString() const = 0;
     [[nodiscard]] virtual nvrhi::GraphicsAPI getGraphicsAPI() const = 0;
-    Logger *logger() const { return m_MessageCallback.logger; }
 
     const DeviceCreationParameters& getDeviceParams() { return m_DeviceParams; }
     [[nodiscard]] bool isVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
@@ -175,6 +175,8 @@ protected:
 
     std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
 
+    void logMessage(nvrhi::MessageSeverity severity, const char *fmt, ...) const;
+
     DeviceManager() = default;
 
     void releaseFramebuffers();
@@ -188,27 +190,6 @@ protected:
     virtual bool createSwapChain() = 0;
     virtual void destroyDeviceAndSwapChain() = 0;
     virtual void resizeSwapChain() = 0;
-
-    struct MessageCallback : public nvrhi::IMessageCallback {
-        Logger *logger = nullptr;
-
-        void message(nvrhi::MessageSeverity severity, const char* messageText) override {
-            switch (severity) {
-            case nvrhi::MessageSeverity::Info:
-                logger->logMessage(Logger::LogLevel::Info, messageText);
-                break;
-            case nvrhi::MessageSeverity::Warning:
-                logger->logMessage(Logger::LogLevel::Warning, messageText);
-                break;
-            case nvrhi::MessageSeverity::Error:
-                logger->logMessage(Logger::LogLevel::Error, messageText);
-                break;
-            case nvrhi::MessageSeverity::Fatal:
-                logger->logMessage(Logger::LogLevel::Critical, messageText);
-                break;
-            }
-        }
-    } m_MessageCallback;
 
 private:
 #if USE_DX11

@@ -22,13 +22,14 @@
 
 // adapted from https://github.com/NVIDIAGameWorks/donut
 
+#include "DeviceManager.h"
+
+#if USE_VULKAN
+
 #include <string>
 #include <queue>
 #include <unordered_set>
 
-#include "DeviceManager.h"
-
-#include <nvrhi/vulkan.h>
 #include <nvrhi/validation.h>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -259,13 +260,12 @@ private:
             const auto found = std::find(ignored.begin(), ignored.end(), location);
             if (found != ignored.end())
                 return VK_FALSE;
-        }
 
-        manager->logger()->warning("[Vulkan: location=0x%zx code=%d, layerPrefix='%s'] %s", location, code, layerPrefix, msg);
+            manager->logMessage(nvrhi::MessageSeverity::Warning, "[Vulkan: location=0x%zx code=%d, layerPrefix='%s'] %s", location, code, layerPrefix, msg);
+        }
 
         return VK_FALSE;
     }
-
 };
 
 static std::vector<const char *> stringSetToVector(const std::unordered_set<std::string>& set)
@@ -318,7 +318,7 @@ bool DeviceManager_VK::pickPhysicalDevice()
     {
         if (m_DeviceParams.adapterIndex > lastDevice)
         {
-            logger()->error("The specified Vulkan physical device %d does not exist.", m_DeviceParams.adapterIndex);
+            logMessage(nvrhi::MessageSeverity::Error, "The specified Vulkan physical device %d does not exist.", m_DeviceParams.adapterIndex);
             return false;
         }
         firstDevice = m_DeviceParams.adapterIndex;
@@ -458,7 +458,7 @@ bool DeviceManager_VK::pickPhysicalDevice()
         return true;
     }
 
-    logger()->error("%s", errorStream.str().c_str());
+    logMessage(nvrhi::MessageSeverity::Error, "%s", errorStream.str().c_str());
 
     return false;
 }
@@ -507,7 +507,7 @@ bool DeviceManager_VK::findQueueFamilies(vk::PhysicalDevice physicalDevice)
                 VkBool32 support;
                 if(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, m_WindowSurface, &support) != VK_SUCCESS)
                 {
-                    logger()->critical("vkGetPhysicalDeviceSurfaceSupportKHR() failed");
+                    logMessage(nvrhi::MessageSeverity::Fatal, "vkGetPhysicalDeviceSurfaceSupportKHR() failed");
                     return false;
                 }
                 if (support)
@@ -566,10 +566,10 @@ bool DeviceManager_VK::createDeviceInternal()
     bool synchronization2Supported = false;
     bool maintenance4Supported = false;
 
-    logger()->info("Enabled Vulkan device extensions:");
+    logMessage(nvrhi::MessageSeverity::Info, "Enabled Vulkan device extensions:");
     for (const auto& ext : enabledExtensions.device)
     {
-        logger()->info("    %s", ext.c_str());
+        logMessage(nvrhi::MessageSeverity::Info, "    %s", ext.c_str());
 
         if (ext == VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
             accelStructSupported = true;
@@ -689,13 +689,12 @@ bool DeviceManager_VK::createDeviceInternal()
         .setPpEnabledLayerNames(layerVec.data())
         .setPNext(&vulkan12features);
 
-    if (m_DeviceParams.deviceCreateInfoCallback)
-        m_DeviceParams.deviceCreateInfoCallback(deviceDesc);
+    m_DeviceParams.delegate->deviceCreateInfoCallback(deviceDesc);
     
     const vk::Result res = m_VulkanPhysicalDevice.createDevice(&deviceDesc, nullptr, &m_VulkanDevice);
     if (res != vk::Result::eSuccess)
     {
-        logger()->error("Failed to create a Vulkan physical device, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        logMessage(nvrhi::MessageSeverity::Error, "Failed to create a Vulkan physical device, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -712,7 +711,7 @@ bool DeviceManager_VK::createDeviceInternal()
     // remember the bufferDeviceAddress feature enablement
     m_BufferDeviceAddressSupported = vulkan12features.bufferDeviceAddress;
 
-    logger()->info("Created Vulkan device: %s", m_RendererString.c_str());
+    logMessage(nvrhi::MessageSeverity::Info, "Created Vulkan device: %s", m_RendererString.c_str());
 
     return true;
 }
@@ -720,7 +719,7 @@ bool DeviceManager_VK::createDeviceInternal()
 bool DeviceManager_VK::createWindowSurface()
 {
     VkSurfaceKHR surface = nullptr;
-    bool result = m_DeviceParams.createSurfaceCallback((VkInstance)m_VulkanInstance, &surface);
+    bool result = m_DeviceParams.delegate->createSurfaceCallback((VkInstance)m_VulkanInstance, &surface);
     m_WindowSurface = surface;
     return result;
 }
@@ -752,7 +751,7 @@ bool DeviceManager_VK::createSwapChainInternal()
 
     auto surfaceCaps = m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_WindowSurface);
     vk::Extent2D extent = surfaceCaps.currentExtent;
-    logger()->debug("(Re)-creating swapchain: %d x %d", extent.width, extent.height);
+    logMessage(nvrhi::MessageSeverity::Info, "(Re)-creating swapchain: %d x %d", extent.width, extent.height);
 
     std::unordered_set<uint32_t> uniqueQueues = {
         uint32_t(m_GraphicsQueueFamily),
@@ -808,7 +807,7 @@ bool DeviceManager_VK::createSwapChainInternal()
     const vk::Result res = m_VulkanDevice.createSwapchainKHR(&desc, nullptr, &m_SwapChain);
     if (res != vk::Result::eSuccess)
     {
-        logger()->error("Failed to create a Vulkan swap chain, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        logMessage(nvrhi::MessageSeverity::Error, "Failed to create a Vulkan swap chain, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -892,14 +891,14 @@ bool DeviceManager_VK::createInstanceInternal()
         for (const auto& ext : requiredExtensions)
             ss << std::endl << "  - " << ext;
 
-        logger()->error("%s", ss.str().c_str());
+        logMessage(nvrhi::MessageSeverity::Error, "%s", ss.str().c_str());
         return false;
     }
 
-    logger()->info("Enabled Vulkan instance extensions:");
+    logMessage(nvrhi::MessageSeverity::Info, "Enabled Vulkan instance extensions:");
     for (const auto& ext : enabledExtensions.instance)
     {
-        logger()->info("    %s", ext.c_str());
+        logMessage(nvrhi::MessageSeverity::Info, "    %s", ext.c_str());
     }
 
     std::unordered_set<std::string> requiredLayers = enabledExtensions.layers;
@@ -922,14 +921,14 @@ bool DeviceManager_VK::createInstanceInternal()
         for (const auto& ext : requiredLayers)
             ss << std::endl << "  - " << ext;
 
-        logger()->error("%s", ss.str().c_str());
+        logMessage(nvrhi::MessageSeverity::Error, "%s", ss.str().c_str());
         return false;
     }
 
-    logger()->info("Enabled Vulkan layers:");
+    logMessage(nvrhi::MessageSeverity::Info, "Enabled Vulkan layers:");
     for (const auto& layer : enabledExtensions.layers)
     {
-        logger()->info("    %s", layer.c_str());
+        logMessage(nvrhi::MessageSeverity::Info, "    %s", layer.c_str());
     }
 
     auto instanceExtVec = stringSetToVector(enabledExtensions.instance);
@@ -942,7 +941,7 @@ bool DeviceManager_VK::createInstanceInternal()
 
     if (res != vk::Result::eSuccess)
     {
-        logger()->error("Call to vkEnumerateInstanceVersion failed, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        logMessage(nvrhi::MessageSeverity::Error, "Call to vkEnumerateInstanceVersion failed, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -951,7 +950,7 @@ bool DeviceManager_VK::createInstanceInternal()
     // Check if the Vulkan API version is sufficient.
     if (applicationInfo.apiVersion < minimumVulkanVersion)
     {
-        logger()->error("The Vulkan API version supported on the system (%d.%d.%d) is too low, at least %d.%d.%d is required.",
+        logMessage(nvrhi::MessageSeverity::Error, "The Vulkan API version supported on the system (%d.%d.%d) is too low, at least %d.%d.%d is required.",
             VK_API_VERSION_MAJOR(applicationInfo.apiVersion), VK_API_VERSION_MINOR(applicationInfo.apiVersion), VK_API_VERSION_PATCH(applicationInfo.apiVersion),
             VK_API_VERSION_MAJOR(minimumVulkanVersion), VK_API_VERSION_MINOR(minimumVulkanVersion), VK_API_VERSION_PATCH(minimumVulkanVersion));
         return false;
@@ -960,7 +959,7 @@ bool DeviceManager_VK::createInstanceInternal()
     // Spec says: A non-zero variant indicates the API is a variant of the Vulkan API and applications will typically need to be modified to run against it.
     if (VK_API_VERSION_VARIANT(applicationInfo.apiVersion) != 0)
     {
-        logger()->error("The Vulkan API supported on the system uses an unexpected variant: %d.", VK_API_VERSION_VARIANT(applicationInfo.apiVersion));
+        logMessage(nvrhi::MessageSeverity::Error, "The Vulkan API supported on the system uses an unexpected variant: %d.", VK_API_VERSION_VARIANT(applicationInfo.apiVersion));
         return false;
     }
 
@@ -975,7 +974,7 @@ bool DeviceManager_VK::createInstanceInternal()
     res = vk::createInstance(&info, nullptr, &m_VulkanInstance);
     if (res != vk::Result::eSuccess)
     {
-        logger()->error("Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
+        logMessage(nvrhi::MessageSeverity::Error, "Failed to create a Vulkan instance, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
 
@@ -1061,7 +1060,7 @@ bool DeviceManager_VK::createDevice()
     auto vecDeviceExt = stringSetToVector(enabledExtensions.device);
 
     nvrhi::vulkan::DeviceDesc deviceDesc;
-    deviceDesc.errorCB = &m_MessageCallback;
+    deviceDesc.errorCB = m_DeviceParams.messageCallback;
     deviceDesc.instance = m_VulkanInstance;
     deviceDesc.physicalDevice = m_VulkanPhysicalDevice;
     deviceDesc.device = m_VulkanDevice;
@@ -1244,3 +1243,5 @@ DeviceManager *DeviceManager::createVK()
 {
     return new DeviceManager_VK();
 }
+
+#endif // #if USE_VULKAN
