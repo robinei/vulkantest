@@ -3,17 +3,26 @@
 #include <atomic>
 
 class RefCounted {
-    std::atomic<int> refcount;
-public:
+    std::atomic<int> refcount = 0;
+
+protected:
     virtual ~RefCounted() { }
-    RefCounted() : refcount(1) { }
+
+public:
+    RefCounted() = default;
+    RefCounted(const RefCounted &) = delete;
+    RefCounted &operator=(const RefCounted &) = delete;
+
+    int getRefCount() const {
+        return refcount;
+    }
 
     void addRef() {
         ++refcount;
     }
 
     void release() {
-        if (--refcount == 0) {
+        if (--refcount <= 0) {
             delete this;
         }
     }

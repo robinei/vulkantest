@@ -512,6 +512,7 @@ int main(int argc, char* argv[]) {
             device->executeCommandList(commandList);
 
             deviceManager->present();
+            AssetLoader::garbageCollect(true);
         }
 
         device->runGarbageCollection();

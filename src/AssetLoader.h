@@ -1,92 +1,70 @@
 #pragma once
 
 #include <nvrhi/nvrhi.h>
-#include <mutex>
-#include <utility>
-#include <functional>
-#include "Logger.h"
-#include "JobSystem.h"
 #include "RefCounted.h"
 
 class BaseAsset : public RefCounted {
-    template <typename U>
-    friend class AssetMap;
-
-    void addWaitingScope(JobScope *scope) {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!loaded) {
-            scope->addPendingCount(1);
-            waitingScopes.push_back(scope);
-        }
-    }
-
 protected:
-    std::string path;
-    std::mutex mutex;
-    std::atomic<bool> loaded;
-    std::vector<JobScope *> waitingScopes;
-
-    BaseAsset(const std::string &path) : path(path), loaded(false) { }
+    std::atomic<bool> loaded = false;
 
 public:
-    ~BaseAsset() { logger->debug("Destroying asset: %s", path.c_str()); }
-
-    const std::string &getPath() const { return path; }
-
-    bool isLoaded() const { return loaded; }
-
     virtual void loadIfNotLoaded() = 0;
+    bool isLoaded() const { return loaded; }
 };
 
 template <typename T>
 class Asset : public BaseAsset {
-    template <typename U>
-    friend class AssetMap;
-    
-    std::function<T (const std::string &)> loader;
+protected:
     T asset;
+    virtual void load() = 0;
 
 public:
-    Asset(const std::string &path, std::function<T (const std::string &)> &&loader) : BaseAsset(path), loader(loader) { }
-
-    void loadIfNotLoaded() override {
-        if (loaded) {
-            return;
-        }
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!loaded) {
-            asset = std::move(loader(path));
-            loaded = true;
-            for (auto scope : waitingScopes) {
-                scope->addPendingCount(-1);
-            }
-            waitingScopes.clear();
-        }
-    }
-
     const T &get() {
         loadIfNotLoaded();
         return asset;
     }
 };
 
-typedef Ref<BaseAsset> AssetHandle;
+struct Blob {
+    size_t size = 0;
+    unsigned char *data = nullptr;
 
-typedef std::vector<unsigned char> Blob;
-typedef Asset<Blob> BlobAsset;
-typedef Ref<BlobAsset> BlobAssetHandle;
+    ~Blob() { free(data); }
+    Blob() = default;
+    Blob(const Blob &) = delete;
+    Blob &operator=(const Blob &) = delete;
+};
 
-typedef Asset<nvrhi::ShaderHandle> ShaderAsset;
-typedef Ref<ShaderAsset> ShaderAssetHandle;
+struct Image {
+    nvrhi::Format format = nvrhi::Format::UNKNOWN;
+    int width = 0;
+    int height = 0;
+    int pitch = 0;
+    unsigned char *data = nullptr;
 
-typedef Asset<nvrhi::TextureHandle> TextureAsset;
-typedef Ref<TextureAsset> TextureAssetHandle;
+    ~Image() { free(data); }
+    Image() = default;
+    Image(const Image &) = delete;
+    Image &operator=(const Image &) = delete;
+};
+
+extern template class Asset<Blob>;
+extern template class Asset<Image>;
+extern template class Asset<nvrhi::ShaderHandle>;
+extern template class Asset<nvrhi::TextureHandle>;
+
+typedef Ref<Asset<Blob>> BlobAssetHandle;
+typedef Ref<Asset<Image>> ImageAssetHandle;
+typedef Ref<Asset<nvrhi::ShaderHandle>> ShaderAssetHandle;
+typedef Ref<Asset<nvrhi::TextureHandle>> TextureAssetHandle;
 
 class AssetLoader {
 public:
     static void initialize(nvrhi::IDevice *dev);
     static void cleanup();
+    static void garbageCollect(bool incremental = false);
     static BlobAssetHandle getBlob(const std::string &path);
+    static ImageAssetHandle getImage(const std::string &path);
     static ShaderAssetHandle getShader(const std::string &path, nvrhi::ShaderType type);
     static TextureAssetHandle getTexture(const std::string &path, nvrhi::TextureDimension dimension = nvrhi::TextureDimension::Texture2D);
 };
