@@ -21,6 +21,7 @@
 */
 
 #include "vulkan-backend.h"
+#include <sstream>
 #include <unordered_map>
 
 #include <nvrhi/common/misc.h>

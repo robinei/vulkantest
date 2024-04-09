@@ -27,6 +27,7 @@
 #if USE_VULKAN
 
 #include <string>
+#include <sstream>
 #include <queue>
 #include <unordered_set>
 

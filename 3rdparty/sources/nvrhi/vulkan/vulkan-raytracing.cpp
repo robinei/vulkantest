@@ -21,6 +21,8 @@
 */
 
 #include "vulkan-backend.h"
+#include <sstream>
+
 #include <nvrhi/common/misc.h>
 
 namespace nvrhi::vulkan

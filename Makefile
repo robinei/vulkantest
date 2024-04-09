@@ -25,7 +25,7 @@ ifeq ($(OS),Windows_NT)
 endif
 
 CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
-CXXFLAGS=$(CFLAGS) -std=c++17
+CXXFLAGS=$(CFLAGS) -std=c++20
 LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
 
 
