@@ -53,16 +53,16 @@ namespace nvrhi::vulkan
     {
         IMessageCallback* errorCB = nullptr;
 
-        VkInstance instance;
-        VkPhysicalDevice physicalDevice;
-        VkDevice device;
+        VkInstance instance = nullptr;
+        VkPhysicalDevice physicalDevice = nullptr;
+        VkDevice device = nullptr;
 
         // any of the queues can be null if this context doesn't intend to use them
-        VkQueue graphicsQueue;
+        VkQueue graphicsQueue = nullptr;
         int graphicsQueueIndex = -1;
-        VkQueue transferQueue;
+        VkQueue transferQueue = nullptr;
         int transferQueueIndex = -1;
-        VkQueue computeQueue;
+        VkQueue computeQueue = nullptr;
         int computeQueueIndex = -1;
 
         VkAllocationCallbacks *allocationCallbacks = nullptr;

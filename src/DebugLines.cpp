@@ -63,8 +63,13 @@ static void doInit(RenderContext &context) {
         .setVertexShader(vertShader->get())
         .setPixelShader(fragShader->get())
         .addBindingLayout(bindingLayout);
-    pipelineDesc.renderState.rasterState.setCullNone();
-    pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false);
+    pipelineDesc.renderState.blendState.targets[0]
+        .setBlendEnable(true)
+        .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+        .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+        .setSrcBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+        .setDestBlendAlpha(nvrhi::BlendFactor::Zero);
+    pipelineDesc.renderState.depthStencilState.setDepthWriteEnable(false);
     lineGraphicsPipeline = context.device->createGraphicsPipeline(pipelineDesc, context.framebuffer);
     assert(lineGraphicsPipeline);
 }

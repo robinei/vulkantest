@@ -1,6 +1,7 @@
 rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 
 #USE_GCC=1
+USE_ASAN=1
 MAKE=make
 RM=rm -f
 GLSLC=glslc
@@ -28,6 +29,10 @@ CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
 CXXFLAGS=$(CFLAGS) -std=c++20
 LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
 
+ifdef USE_ASAN
+	CFLAGS += -fsanitize=address
+	LDFLAGS += -fsanitize=address
+endif
 
 GAME_TARGET=vulkantest$(EXE)
 
@@ -42,6 +47,8 @@ DEPS_OBJECTS=$(DEPS_C_SOURCES:.c=.o) $(DEPS_CXX_SOURCES:.cpp=.o)
 ASSET_VERT_SOURCES=$(call rwildcard,assets/shaders,*.vert)
 ASSET_FRAG_SOURCES=$(call rwildcard,assets/shaders,*.frag)
 ASSET_SHADERS=$(ASSET_VERT_SOURCES:.vert=.vert.spv) $(ASSET_FRAG_SOURCES:.frag=.frag.spv)
+
+#export ASAN_OPTIONS=fast_unwind_on_malloc=0
 
 .PHONY: all
 all: rebuild

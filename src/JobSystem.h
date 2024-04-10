@@ -74,11 +74,14 @@ class Job {
 
     void run() {
         invoker((void *)data);
-        --scope->pendingCount;
+        if (scope) {
+            --scope->pendingCount;
+        }
     }
 
     static void enqueueJob(Job &job);
     static void enqueueJobOnMain(Job &job);
+    static void enqueueJobOnWorker(Job &job);
 
 public:
     template <typename Func>
@@ -94,6 +97,13 @@ public:
         job.setFunc(std::forward<Func>(func));
         enqueueJobOnMain(job);
     }
+
+    template <typename Func>
+    inline static void enqueueOnWorker(Func &&func) {
+        Job job;
+        job.setFunc(std::forward<Func>(func));
+        enqueueJobOnWorker(job);
+    }
 };
 
 static_assert(sizeof(Job) == 64);
@@ -108,7 +118,6 @@ inline void JobScope::enqueue(Func &&func) {
 class JobSystem {
 public:
     static void dispatch();
-    static void runPendingMainJobs();
     static void start();
     static void stop();
 };

@@ -2,28 +2,44 @@
 
 #include <nvrhi/nvrhi.h>
 #include "RefCounted.h"
+#include <coroutine>
 
-class BaseAsset : public RefCounted {
-protected:
-    std::atomic<bool> loaded = false;
-
+class Coroutine {
 public:
-    virtual void loadIfNotLoaded() = 0;
-    bool isLoaded() const { return loaded; }
+    struct Promise {
+        Coroutine get_return_object() { return Coroutine {}; }
+        void unhandled_exception() noexcept { }
+        void return_void() noexcept { }
+        std::suspend_never initial_suspend() noexcept { return {}; }
+        std::suspend_never final_suspend() noexcept { return {}; }
+    };
+    using promise_type = Promise;
 };
 
 template <typename T>
-class Asset : public BaseAsset {
+class Asset : public RefCounted {
 protected:
+    std::atomic<bool> loaded = false;
     T asset;
-    virtual void load() = 0;
+
+    virtual void addAwaiter(std::coroutine_handle<> handle) noexcept = 0;
 
 public:
-    const T &get() {
-        if (!loaded) {
-            loadIfNotLoaded();
-        }
+    bool isLoaded() const noexcept { return loaded; }
+
+    const T &get() const noexcept {
+        assert(loaded);
         return asset;
+    }
+
+    auto operator co_await() {
+        struct Awaiter {
+            Asset *asset;
+            bool await_ready() const noexcept { return asset->loaded; }
+            void await_suspend(std::coroutine_handle<> handle) noexcept { asset->addAwaiter(handle); }
+            const T &await_resume() const noexcept { return asset->get(); }
+        };
+        return Awaiter { this };
     }
 };
 

@@ -1,6 +1,7 @@
 #include "JobSystem.h"
 
 #include "wsq.hpp"
+#include "MPMCQueue.h"
 #include <thread>
 #include <mutex>
 #include <chrono>
@@ -21,22 +22,21 @@
 
 
 typedef WorkStealingQueue<Job> JobQueue;
+typedef rigtorp::MPMCQueue<Job> ExternalJobQueue;
 
 static std::atomic<bool> workersShouldStop;
 static int workerCount;
 static JobQueue *workerQueues;
 static std::vector<std::thread> workerThreads;
 static JobQueue mainQueue; // belonging to the main thread
-
-static std::mutex pendingMainJobsMutex;
-static std::vector<Job> pendingMainJobs;
-static JobScope dummyScope(nullptr);
+static ExternalJobQueue externalMainQueue(16384);
+static ExternalJobQueue externalWorkerQueue(16384);
 
 
 class ThreadContext {
 public:
     JobQueue *queue;
-    int stealStart; // at which worker index to start stealing probe
+    ExternalJobQueue *externalQueue;
     JobScope *activeScope;
     JobScope *threadScope;
     char threadName[16];
@@ -99,16 +99,25 @@ public:
         }
 
         // steal from other worker queues (not self)
-        for (int i = 0; i < workerCount; ++i) {
-            int idx = (stealStart + i) % workerCount;
-            JobQueue *workerQueue = &workerQueues[idx];
-            if (workerQueue != queue) {
-                auto job = workerQueues[idx].steal();
-                if (job.has_value()) {
-                    LOG_DEBUG("%s stealing from worker%d\n", threadName, idx);
-                    INC_STAT(stealWorkerCount);
-                    stealStart = idx; // next time, start trying to steal from this queue
-                    job->run();
+        int count = workerCount + 1; // add one so we can dedicate an index to dispatching from the external queue
+        int start = rand() % count;
+        for (int i = 0; i < count; ++i) {
+            int idx = (start + i) % count;
+            if (idx < workerCount) {
+                JobQueue *workerQueue = &workerQueues[idx];
+                if (workerQueue != queue) {
+                    job = workerQueue->steal();
+                    if (job.has_value()) {
+                        LOG_DEBUG("%s stealing from worker%d\n", threadName, idx);
+                        INC_STAT(stealWorkerCount);
+                        job->run();
+                        return true;
+                    }
+                }
+            } else {
+                Job externalJob;
+                if (externalQueue->try_pop(externalJob)) {
+                    externalJob.run();
                     return true;
                 }
             }
@@ -123,7 +132,7 @@ public:
         LOG_DEBUG("%s starting\n", threadName);
 
         queue = &workerQueues[workerIndex];
-        stealStart = (workerIndex + 1) % workerCount;
+        externalQueue = &externalWorkerQueue;
         uint64_t joblessIterations = 0;
 
         while (!workersShouldStop) {
@@ -212,6 +221,15 @@ void JobScope::dispatch() {
             PAUSE();
         }
     }
+    if (threadContext->externalQueue == &externalMainQueue) {
+        for (;;) {
+            Job job;
+            if (!externalMainQueue.try_pop(job)) {
+                break;
+            }
+            job.run();
+        }
+    }
 }
 
 void Job::enqueueJob(Job &job) {
@@ -219,27 +237,22 @@ void Job::enqueueJob(Job &job) {
 }
 
 void Job::enqueueJobOnMain(Job &job) {
-    std::lock_guard<std::mutex> lock(pendingMainJobsMutex);
-    job.scope = &dummyScope;
-    pendingMainJobs.push_back(job);
+    externalMainQueue.push(job);
+}
+
+void Job::enqueueJobOnWorker(Job &job) {
+    externalWorkerQueue.push(job);
 }
 
 void JobSystem::dispatch() {
     currentThreadContext.dispatchActiveScope();
 }
 
-void JobSystem::runPendingMainJobs() {
-    std::lock_guard<std::mutex> lock(pendingMainJobsMutex);
-    for (auto &job : pendingMainJobs) {
-        job.run();
-    }
-    pendingMainJobs.clear();
-}
-
 void JobSystem::start() {
     sprintf(currentThreadContext.threadName, "main");
     SET_THREAD_NAME(currentThreadContext.threadName);
     currentThreadContext.queue = &mainQueue;
+    currentThreadContext.externalQueue = &externalMainQueue;
     workerCount = std::thread::hardware_concurrency();
     if (workerCount > 2) {
         --workerCount; // subtract one, since we also will have the main thread
@@ -259,6 +272,8 @@ void JobSystem::stop() {
     }
     workersShouldStop = false;
     assert(mainQueue.empty());
+    assert(externalMainQueue.empty());
+    assert(externalWorkerQueue.empty());
     workerThreads.clear();
     delete [] workerQueues;
     workerQueues = nullptr;

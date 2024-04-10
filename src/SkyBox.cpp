@@ -114,8 +114,11 @@ void deinitSkyBox() {
 }
 
 void setSkyBoxTexture(const std::string &path) {
-    cubemap = AssetLoader::getTexture(path, nvrhi::TextureDimension::TextureCube);
-    skyboxBindings = nullptr;
+    auto asset = AssetLoader::getTexture(path, nvrhi::TextureDimension::TextureCube);
+    if (asset != cubemap) {
+        cubemap = asset;
+        skyboxBindings = nullptr;
+    }
 }
 
 void updateSkyBox(RenderContext &context) {

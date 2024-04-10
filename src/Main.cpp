@@ -142,6 +142,16 @@ int main(int argc, char* argv[]) {
 
         camera.setScreenSize(deviceManager->getFramebufferWidth(), deviceManager->getFramebufferHeight());
         clearDebugLines();
+        {
+            glm::vec4 gridColor(1, 1, 1, 0.015f);
+            float sep = 100.f;
+            int count = 100;
+            float len = count * sep;
+            for (int i = -count; i <= count; ++i) {
+                drawDebugLine(glm::vec3(-len, 0, i * sep), glm::vec3(len, 0, i * sep), gridColor);
+                drawDebugLine(glm::vec3(i * sep, 0, -len), glm::vec3(i * sep, 0, len), gridColor);
+            }
+        }
         drawDebugLine(glm::vec3(0), glm::vec3(10, 0, 0), glm::vec4(1, 0, 0, 1));
         drawDebugLine(glm::vec3(0), glm::vec3(0, 10, 0), glm::vec4(0, 1, 0, 1));
         drawDebugLine(glm::vec3(0), glm::vec3(0, 0, 10), glm::vec4(0, 0, 1, 1));
@@ -175,7 +185,6 @@ int main(int argc, char* argv[]) {
         // game update should be here
 
         jobScope.dispatch(); // let all update jobs finish before we start rendering
-        JobSystem::runPendingMainJobs();
 
         RenderContext renderContext;
         renderContext.device = device;
@@ -206,10 +215,10 @@ int main(int argc, char* argv[]) {
         device->runGarbageCollection();
     }
 
+    AssetLoader::cleanup();
     JobSystem::stop();
     deinitSkyBox();
     deinitDebugLines();
-    AssetLoader::cleanup();
 
     device->waitForIdle();
     commandList = nullptr;
@@ -217,7 +226,7 @@ int main(int argc, char* argv[]) {
 
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
-    SDL_Quit();
+    //SDL_Quit();
     logger->debug("Exited with errors: %s", SDL_GetError());
     return 0;
 }

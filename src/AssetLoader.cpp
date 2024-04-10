@@ -14,7 +14,7 @@
 #include <vector>
 #include <unordered_map>
 
-#define MAX_LOADER_THREADS 2
+#define MAX_IO_THREADS 2
 
 
 template class Asset<Blob>;
@@ -53,59 +53,57 @@ public:
     }
 };
 
-struct ReadRequest {
-    std::string path;
-    Ref<BaseAsset> asset;
+struct IOAction {
+    bool stopThread;
+    std::function<void ()> perform;
 };
 
 static nvrhi::IDevice *device;
-static thread_local bool isLoaderThread;
-static ConcurrentQueue<ReadRequest> loadRequestQueue;
-static std::vector<std::thread> loaderThreads;
+
+static std::atomic<int> pendingLoads;
+
+static ConcurrentQueue<IOAction> ioActionQueue;
+static std::vector<std::thread> ioThreads;
 
 
 
 template <typename T>
 class AssetImpl : public Asset<T> {
+protected:
     std::string type;
     std::string path;
-    
     std::mutex mutex;
-    std::condition_variable cond;
-    bool loading = false;
+    std::vector<std::coroutine_handle<>> awaiters;
+
+    void addAwaiter(std::coroutine_handle<> handle) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (this->loaded) {
+            Job::enqueueOnWorker([handle, thisRef = Ref(this)] () {
+                handle.resume();
+            });
+        } else {
+            awaiters.push_back(handle);
+        }
+    }
 
 public:
-    AssetImpl(const char *type, const std::string &path) : type(type), path(path) { }
-    //~AssetImpl() { logger->debug("Destroying %s asset: %s", type.c_str(), path.c_str()); }
-
-    const std::string &getPath() const { return path; }
-
-    void loadIfNotLoaded() override {
-        assert(isLoaderThread && "did you call get() on non-ready Asset, on a non-asset-loader thread?");
-        if (this->loaded) {
-            return;
-        }
-
-        {
-            std::unique_lock lock(mutex);
-            if (this->loaded) {
-                return;
-            }
-            if (loading) {
-                cond.wait(lock, [this] { return (bool)this->loaded; });
-                return;
-            } else {
-                loading = true;
-            }
-        }
-
-        logger->debug("Loading %s asset: %s", type.c_str(), path.c_str());
-        this->load();
+    AssetImpl(const char *type, const std::string &path) : type(type), path(path) {
+        //logger->debug("Creating %s asset: %s", type, path.c_str());
+    }
+    ~AssetImpl() {
+        //logger->debug("Destroying %s asset: %s", type.c_str(), path.c_str());
     }
 
     void loadingFinished() {
+        std::lock_guard<std::mutex> lock(mutex);
         this->loaded = true;
-        cond.notify_all();
+        for (auto handle : awaiters) {
+            Job::enqueueOnWorker([handle, thisRef = Ref(this)] () {
+                handle.resume();
+            });
+        }
+        awaiters.clear();
+        --pendingLoads;
     }
 };
 
@@ -114,18 +112,24 @@ class BlobAssetImpl : public AssetImpl<Blob> {
 public:
     BlobAssetImpl(const std::string &path) : AssetImpl("Blob", path) { }
 
-protected:
-    void load() override {
-        FILE *fp = fopen(getPath().c_str(), "rb");
-        assert(fp);
-        fseek(fp, 0, SEEK_END);
-        asset.size = ftell(fp);
-        fseek(fp, 0, SEEK_SET);
-        asset.data = (unsigned char *)malloc(asset.size);
-        size_t n = fread(asset.data, 1, asset.size, fp);
-        assert(n == asset.size);
-        fclose(fp);
-        loadingFinished();
+    void load() {
+        ioActionQueue.push(IOAction { false,
+            [thisRef = Ref(this)] () mutable {
+                FILE *fp = fopen(thisRef->path.c_str(), "rb");
+                assert(fp);
+                fseek(fp, 0, SEEK_END);
+                size_t size = ftell(fp);
+                fseek(fp, 0, SEEK_SET);
+                unsigned char *data = (unsigned char *)malloc(size);
+                size_t n = fread(data, 1, size, fp);
+                assert(n == size);
+                fclose(fp);
+
+                thisRef->asset.data = data;
+                thisRef->asset.size = size;
+                thisRef->loadingFinished();
+            }
+        });
     }
 };
 
@@ -134,10 +138,10 @@ class ImageAssetImpl : public AssetImpl<Image> {
 public:
     ImageAssetImpl(const std::string &path) : AssetImpl("Image", path) { }
 
-protected:
-    void load() override {
-        auto blobAsset = AssetLoader::getBlob(getPath());
-        auto &blob = blobAsset->get();
+    Coroutine load() {
+        auto thisRef = Ref(this);
+        auto blobAsset = AssetLoader::getBlob(path);
+        auto &blob = co_await *blobAsset;
 
         int width, height, comp;
         int ok = stbi_info_from_memory(blob.data, blob.size, &width, &height, &comp);
@@ -170,10 +174,10 @@ class ShaderAssetImpl : public AssetImpl<nvrhi::ShaderHandle> {
 public:
     ShaderAssetImpl(const std::string &path, nvrhi::ShaderType shaderType) : AssetImpl("Shader", path), shaderType(shaderType) { }
 
-protected:
-    void load() override {
-        auto blobAsset = AssetLoader::getBlob(getPath());
-        auto &blob = blobAsset->get();
+    Coroutine load() {
+        auto thisRef = Ref(this);
+        auto blobAsset = AssetLoader::getBlob(path);
+        auto &blob = co_await *blobAsset;
         asset = device->createShader(nvrhi::ShaderDesc(shaderType), blob.data, blob.size);
         assert(asset);
         loadingFinished();
@@ -194,10 +198,10 @@ class TextureAssetImpl : public AssetImpl<nvrhi::TextureHandle> {
 public:
     TextureAssetImpl(const std::string &path, nvrhi::TextureDimension dimension) : AssetImpl(getDimensionName(dimension), path), dimension(dimension) { }
 
-protected:
-    void load() override {
-        auto imageAsset = AssetLoader::getImage(getPath());
-        auto& image = imageAsset->get();
+    Coroutine load() {
+        auto thisRef = Ref(this);
+        auto imageAsset = AssetLoader::getImage(path);
+        auto &image = co_await *imageAsset;
         int height = image.height;
 
         auto textureDesc = nvrhi::TextureDesc()
@@ -207,7 +211,7 @@ protected:
             .setFormat(image.format)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
             .setKeepInitialState(true)
-            .setDebugName(getPath());
+            .setDebugName(path);
         if (dimension == nvrhi::TextureDimension::TextureCube) {
             assert(image.width == height / 6);
             height /= 6;
@@ -230,9 +234,9 @@ protected:
         commandList->commitBarriers();
         commandList->close();
 
-        Job::enqueueOnMain([this, commandList] {
+        Job::enqueueOnMain([thisRef = Ref(this), commandList] () mutable {
             device->executeCommandList(commandList);
-            this->loadingFinished();
+            thisRef->loadingFinished();
         });
     }
 };
@@ -248,8 +252,8 @@ class AssetMap {
 
 public:
     template <typename Creator>
-    T *getOrCreateAsset(const std::string &path, Creator createAsset) {
-        T *asset;
+    Ref<T> getOrCreateAsset(const std::string &path, Creator createAsset) {
+        Ref<T> asset;
         std::lock_guard<std::mutex> lock(mutex);
         auto it = map.find(path);
         if (it != map.end()) {
@@ -257,11 +261,10 @@ public:
         } else {
             asset = createAsset(path);
             map.insert({path, asset});
-
-            ReadRequest request;
-            request.path = path;
-            request.asset = asset;
-            loadRequestQueue.push(std::move(request));
+            ++pendingLoads;
+            Job::enqueueOnWorker([asset] () mutable {
+                asset->load();
+            });
         }
         return asset;
     }
@@ -291,34 +294,34 @@ static AssetMap<TextureAssetImpl> texture2DAssets;
 static AssetMap<TextureAssetImpl> textureCubeAssets;
 
 
-static void loaderThreadFunc() {
-    isLoaderThread = true;
-    for (;;) {
-        auto request = loadRequestQueue.pop();
-        if (request.path.empty()) {
-            logger->debug("Stopping asset loader thread.");
-            break;
-        }
-        request.asset->loadIfNotLoaded();
-    }
-}
-
 void AssetLoader::initialize(nvrhi::IDevice *dev) {
     device = dev;
-    for (int i = 0; i < MAX_LOADER_THREADS; ++i) {
-        loaderThreads.emplace_back([] { loaderThreadFunc(); });
+    for (int i = 0; i < MAX_IO_THREADS; ++i) {
+        ioThreads.emplace_back([] {
+            for (;;) {
+                auto action = ioActionQueue.pop();
+                if (action.stopThread) {
+                    logger->debug("Stopping IO thread.");
+                    break;
+                }
+                action.perform();
+            }
+        });
     }
 }
 
 void AssetLoader::cleanup() {
-    for (int i = 0; i < MAX_LOADER_THREADS; ++i) {
-        loadRequestQueue.push(ReadRequest());
+    while (pendingLoads > 0) {
+        JobSystem::dispatch();
     }
-    for (auto &thread : loaderThreads) {
+    for (int i = 0; i < MAX_IO_THREADS; ++i) {
+        ioActionQueue.push(IOAction { true });
+    }
+    for (auto &thread : ioThreads) {
         thread.join();
     }
-    assert(loadRequestQueue.empty());
-    loaderThreads.clear();
+    assert(ioActionQueue.empty());
+    ioThreads.clear();
     blobAssets.clear();
     imageAssets.clear();
     shaderAssets.clear();
@@ -336,9 +339,10 @@ void AssetLoader::garbageCollect(bool incremental) {
 }
 
 BlobAssetHandle AssetLoader::getBlob(const std::string &path) {
-    return blobAssets.getOrCreateAsset(path, [] (const std::string &path) {
+    auto asset = blobAssets.getOrCreateAsset(path, [] (const std::string &path) {
         return new BlobAssetImpl(path);
     });
+    return asset.get();
 }
 
 ImageAssetHandle AssetLoader::getImage(const std::string &path) {
@@ -351,9 +355,10 @@ ImageAssetHandle AssetLoader::getImage(const std::string &path) {
         realPath.append(path);
     }
 
-    return imageAssets.getOrCreateAsset(realPath, [] (const std::string &path) {
+    auto asset = imageAssets.getOrCreateAsset(realPath, [] (const std::string &path) {
         return new ImageAssetImpl(path);
     });
+    return asset.get();
 }
 
 ShaderAssetHandle AssetLoader::getShader(const std::string &path, nvrhi::ShaderType type) {
@@ -366,9 +371,10 @@ ShaderAssetHandle AssetLoader::getShader(const std::string &path, nvrhi::ShaderT
         realPath.append(path);
     }
     
-    return shaderAssets.getOrCreateAsset(realPath, [type] (const std::string &path) {
+    auto asset = shaderAssets.getOrCreateAsset(realPath, [type] (const std::string &path) {
         return new ShaderAssetImpl(path, type);
-    }); 
+    });
+    return asset.get();
 }
 
 TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::TextureDimension dimension) {
@@ -384,7 +390,8 @@ TextureAssetHandle AssetLoader::getTexture(const std::string &path, nvrhi::Textu
     assert(dimension == nvrhi::TextureDimension::Texture2D || dimension == nvrhi::TextureDimension::TextureCube);
     auto &assets = dimension == nvrhi::TextureDimension::Texture2D ? texture2DAssets : textureCubeAssets;
 
-    return assets.getOrCreateAsset(realPath, [dimension] (const std::string &path) {
+    auto asset = assets.getOrCreateAsset(realPath, [dimension] (const std::string &path) {
         return new TextureAssetImpl(path, dimension);
     });
+    return asset.get();
 }
