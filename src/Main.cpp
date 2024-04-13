@@ -95,7 +95,9 @@ int main(int argc, char* argv[]) {
     DeviceCreationParameters params;
     params.delegate = &delegate;
     params.messageCallback = &messageCallback;
+#ifndef _WIN32
     params.enableDebugRuntime = true;
+#endif
     params.enableNvrhiValidationLayer = true;
     params.vsyncEnabled = true;
 

@@ -69,8 +69,8 @@ struct InstanceParameters
 struct DeviceCreationParameters : public InstanceParameters
 {
     DeviceManagerDelegate *delegate;
-    uint32_t backBufferWidth = 1920;
-    uint32_t backBufferHeight = 1080;
+    uint32_t backBufferWidth = 0;
+    uint32_t backBufferHeight = 0;
     uint32_t swapChainBufferCount = 3;
     nvrhi::Format swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
     uint32_t maxFramesInFlight = 2;

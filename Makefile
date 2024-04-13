@@ -1,7 +1,9 @@
 rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 
-#USE_GCC=1
-USE_ASAN=1
+USE_GCC=1
+#USE_ASAN=1
+#USE_MOLD=1
+
 MAKE=make
 RM=rm -f
 GLSLC=glslc
@@ -11,27 +13,36 @@ WARNINGS=-Wall -Wno-strict-aliasing -Wno-unknown-pragmas
 ifdef USE_GCC
 	CC=ccache gcc
 	CXX=ccache g++
-	LD=g++ -fuse-ld=mold
+	LD=g++
 	WARNINGS+= -Wno-interference-size
 else
 	CC=ccache clang
 	CXX=ccache clang++
-	LD=clang++ -fuse-ld=mold
+	LD=clang++
 	WARNINGS+= -Wno-unused-private-field
+endif
+
+ifdef USE_MOLD
+	LD += -fuse-ld=mold
+endif
+
+CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
+CXXFLAGS=$(CFLAGS) -std=c++20
+LDFLAGS0=
+LDFLAGS=$(LDFLAGS0) -lm -latomic -lSDL2main -lSDL2
+
+ifdef USE_ASAN
+	CFLAGS += -fsanitize=address
+	LDFLAGS += -fsanitize=address
 endif
 
 EXE:=
 ifeq ($(OS),Windows_NT)
 	EXE:=.exe
-endif
-
-CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
-CXXFLAGS=$(CFLAGS) -std=c++20
-LDFLAGS=-lm -latomic -lSDL2 -lSDL2main -lvulkan
-
-ifdef USE_ASAN
-	CFLAGS += -fsanitize=address
-	LDFLAGS += -fsanitize=address
+	LDFLAGS += -lvulkan-1 -mwindows
+	LDFLAGS0 += -lmingw32
+else
+	LDFLAGS += -lvulkan
 endif
 
 GAME_TARGET=vulkantest$(EXE)

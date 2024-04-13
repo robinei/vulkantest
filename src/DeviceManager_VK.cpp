@@ -395,10 +395,11 @@ bool DeviceManager_VK::pickPhysicalDevice()
                 deviceIsGood = false;
             }
 
-            if (surfaceCaps.minImageExtent.width > requestedExtent.width ||
-                surfaceCaps.minImageExtent.height > requestedExtent.height ||
-                surfaceCaps.maxImageExtent.width < requestedExtent.width ||
-                surfaceCaps.maxImageExtent.height < requestedExtent.height)
+            if (requestedExtent.width > 0 && requestedExtent.height > 0 &&
+                (surfaceCaps.minImageExtent.width > requestedExtent.width ||
+                 surfaceCaps.minImageExtent.height > requestedExtent.height ||
+                 surfaceCaps.maxImageExtent.width < requestedExtent.width ||
+                 surfaceCaps.maxImageExtent.height < requestedExtent.height))
             {
                 errorStream << std::endl << "  - cannot support the requested swap chain size:";
                 errorStream << " requested " << requestedExtent.width << "x" << requestedExtent.height << ", ";
