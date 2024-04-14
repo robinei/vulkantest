@@ -8,44 +8,44 @@ MAKE=make
 RM=rm -f
 GLSLC=glslc
 DEFINES=-DGLM_FORCE_LEFT_HANDED -DGLM_FORCE_DEPTH_ZERO_TO_ONE -DGLM_FORCE_INTRINSICS
-WARNINGS=-Wall -Wno-strict-aliasing -Wno-unknown-pragmas
+
+CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) -Wall -Wno-strict-aliasing -Wno-unknown-pragmas
+CXXFLAGS=-std=c++20 $(CFLAGS)
+LDFLAGS0=
+LDFLAGS=$(LDFLAGS0) -lm -latomic -lSDL2main -lSDL2
 
 ifdef USE_GCC
 	CC=ccache gcc
 	CXX=ccache g++
 	LD=g++
-	WARNINGS+= -Wno-interference-size
+	CXXFLAGS+= -Wno-interference-size
 else
 	CC=ccache clang
 	CXX=ccache clang++
 	LD=clang++
-	WARNINGS+= -Wno-unused-private-field
+	CXXFLAGS+= -Wno-unused-private-field
 endif
 
 ifdef USE_MOLD
 	LD += -fuse-ld=mold
 endif
 
-CFLAGS=-c -g -O2 -I./3rdparty/include $(DEFINES) $(WARNINGS)
-CXXFLAGS=$(CFLAGS) -std=c++20
-LDFLAGS0=
-LDFLAGS=$(LDFLAGS0) -lm -latomic -lSDL2main -lSDL2
-
 ifdef USE_ASAN
 	CFLAGS += -fsanitize=address
 	LDFLAGS += -fsanitize=address
 endif
 
-EXE:=
+EXE_EXTENSION:=
 ifeq ($(OS),Windows_NT)
-	EXE:=.exe
-	LDFLAGS += -lvulkan-1 -mwindows
+	EXE_EXTENSION:=.exe
+	LDFLAGS += -mwindows
 	LDFLAGS0 += -lmingw32
+	DEFINES += -DVK_USE_PLATFORM_WIN32_KHR
 else
-	LDFLAGS += -lvulkan
+	DEFINES += -DVK_USE_PLATFORM_XLIB_KHR
 endif
 
-GAME_TARGET=vulkantest$(EXE)
+GAME_TARGET=vulkantest$(EXE_EXTENSION)
 
 GAME_C_SOURCES=$(call rwildcard,src,*.c)
 GAME_CXX_SOURCES=$(call rwildcard,src,*.cpp)

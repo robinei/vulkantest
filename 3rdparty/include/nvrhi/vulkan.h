@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <vulkan/vulkan.h>
+#include "volk.h"
 #include <nvrhi/nvrhi.h>
 
 namespace nvrhi 

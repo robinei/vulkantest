@@ -3,10 +3,7 @@
 #include <cstdint>
 #include <cassert>
 
-#ifdef _WIN32
-#pragma comment(linker, "/subsystem:windows")
-#define VK_USE_PLATFORM_WIN32_KHR
-#else
+#ifndef _WIN32
 #define VK_USE_PLATFORM_XLIB_KHR
 #include <X11/Xlib.h>
 #undef None
@@ -89,6 +86,12 @@ struct DelegateImpl : public DeviceManagerDelegate {
 
 int main(int argc, char* argv[]) {
     JobSystem::start();
+
+    VkResult vr = volkInitialize();
+    if (vr != VK_SUCCESS) {
+        logger->critical("volkInitialize() failed with error code %d", vr);
+        return 1;
+    }
 
     DelegateImpl delegate;
     MessageCallback messageCallback;

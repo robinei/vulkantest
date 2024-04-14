@@ -699,6 +699,8 @@ bool DeviceManager_VK::createDeviceInternal()
         logMessage(nvrhi::MessageSeverity::Error, "Failed to create a Vulkan physical device, error code = %s", nvrhi::vulkan::resultToString(VkResult(res)));
         return false;
     }
+    
+    volkLoadDevice(m_VulkanDevice);
 
     m_VulkanDevice.getQueue(m_GraphicsQueueFamily, 0, &m_GraphicsQueue);
     if (m_DeviceParams.enableComputeQueue)
@@ -980,6 +982,7 @@ bool DeviceManager_VK::createInstanceInternal()
         return false;
     }
 
+    volkLoadInstance(m_VulkanInstance);
     VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
 
     return true;
